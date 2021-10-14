@@ -54,6 +54,10 @@ def parse_args():
                         help="training epochs")
     parser.add_argument("--learning_rate", type=float, default=2e-4,
                         help="learning rate")
+    parser.add_argument('--shuffle', action='store_true',
+                        help="shuffle data when training")
+    parser.add_argument('--permute', action='store_true',
+                        help="permute data when training")
 
     return parser.parse_args()
 
@@ -63,6 +67,7 @@ def main(args):
         # evaluate
         if non_trivial:
             model.eval()
+        vocab_size = dataset.vocab_size
         y_targets = []
         y_preds = []
         y_pred_probs = []
@@ -257,31 +262,39 @@ def main(args):
 
     # Load Data
 
-    data = dill.load(open(os.path.join(args.data_path, "records_final.pkl"), "rb"))
-    vocab = dill.load(open(os.path.join(args.data_path, "voc_final.pkl"), "rb"))
-    diag_vocab = vocab['diag_voc']
-    proc_vocab = vocab['pro_voc']
-    med_vocab = vocab['med_voc']
-    vocab_size = (len(diag_vocab.idx2word), len(proc_vocab.idx2word), len(med_vocab.idx2word))
-    # split data
-    split_point = int(len(data) * 2 / 3)
-    data_train = data[:split_point]
-    eval_len = int(len(data[split_point:]) / 2)
-    data_test = data[split_point:split_point + eval_len]
-    data_eval = data[split_point+eval_len:]
-    # special data for GAMENet
-    ehr_adj = dill.load(open(os.path.join(args.data_path, "ehr_adj_final.pkl"), "rb"))
-    ddi_adj = dill.load(open(os.path.join(args.data_path, "ddi_A_final.pkl"), "rb"))
+    #data = dill.load(open(os.path.join(args.data_path, "records_final.pkl"), "rb"))
+    #vocab = dill.load(open(os.path.join(args.data_path, "voc_final.pkl"), "rb"))
+    #diag_vocab = vocab['diag_voc']
+    #proc_vocab = vocab['pro_voc']
+    #med_vocab = vocab['med_voc']
+    #vocab_size = (len(diag_vocab.idx2word), len(proc_vocab.idx2word), len(med_vocab.idx2word))
+    ## split data
+    #split_point = int(len(data) * 2 / 3)
+    #data_train = data[:split_point]
+    #eval_len = int(len(data[split_point:]) / 2)
+    #data_test = data[split_point:split_point + eval_len]
+    #data_eval = data[split_point+eval_len:]
+    ## special data for GAMENet
+    #ehr_adj = dill.load(open(os.path.join(args.data_path, "ehr_adj_final.pkl"), "rb"))
+    #ddi_adj = dill.load(open(os.path.join(args.data_path, "ddi_A_final.pkl"), "rb"))
 
     dataset = MedicalRecommendationDataset(args.data_path)
-    train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name)
+    train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name, 
+                                                                    shuffle=args.shuffle, 
+                                                                    permute=args.permute)
+
+    if args.model_name == "GAMENet":
+        ehr_adj, ddi_adj = dataset.get_extra_data(args.model_name)
 
     # Create model
 
     if args.model_name == "GAMENet":
-        model = GAMENet(vocab_size, ehr_adj, ddi_adj, emb_dim=args.emb_dim, ddi_in_memory=args.ddi, device=device)
+        model = GAMENet(dataset.vocab_size, ehr_adj, ddi_adj, 
+                        emb_dim=args.emb_dim, 
+                        ddi_in_memory=args.ddi, 
+                        device=device)
     elif args.model_name == "Leap":
-        model = Leap(vocab_size, emb_dim=args.emb_dim, device=device)
+        model = Leap(dataset.vocab_size, emb_dim=args.emb_dim, device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
 
@@ -305,8 +318,8 @@ def main(args):
         best_ckp = "final.model"
         if args.model_name == "GAMENet":
             T = args.temperature_initial
-        elif args.model_name == "Leap":
-            END_TOKEN = vocab_size[2] + 1
+        #elif args.model_name == "Leap":
+        #    END_TOKEN = vocab_size[2] + 1
 
         print("=" * 25 + "    Training {}    ".format(args.model_name) + "=" * 25)
 

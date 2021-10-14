@@ -4,6 +4,7 @@ import os
 import sys
 import warnings
 import dill
+import random
 from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
@@ -30,8 +31,9 @@ class MedicalRecommendationDataset(object):
         self.data_test = self.data[split_point:split_point + eval_len]
         self.data_eval = self.data[split_point+eval_len:]
 
-    def get_dataloader(self, model_name):
-        train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.med_vocab_size)
+    def get_dataloader(self, model_name, shuffle=False, permute=False):
+        train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.med_vocab_size, 
+                                                       shuffle=shuffle, permute=permute)
         eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.med_vocab_size, evaluate=True)
         test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.med_vocab_size, evaluate=True)
         return train_loader, eval_loader, test_loader
@@ -54,6 +56,7 @@ class MedicalRecommendationDataloader(object):
         self.evaluate = evaluate
         if evaluate:
             self.shuffle = False
+            self.permute = False
 
     def __len__(self):
         if self.evaluate:
@@ -63,11 +66,18 @@ class MedicalRecommendationDataloader(object):
 
     def __iter__(self):
         data_to_iter = self.data
+        if self.shuffle:
+            random.shuffle(data_to_iter)
         if self.evaluate:
             # TODO: this is a temp solution, data preprocessing should be rewritten
             data_to_iter = [data for data in data_to_iter if len(data) > 1]
         for patient in data_to_iter:
             for idx, admission in enumerate(patient):
+
+                if self.permute:
+                    random.shuffle(admission[0])
+                    random.shuffle(admission[1])
+                    random.shuffle(admission[2])
                 if self.evaluate and idx == 0:
                     continue
                 if self.evaluate:
