@@ -41,7 +41,7 @@ class GCN(nn.Module):
         return mx
 
 class GAMENet(nn.Module):
-    def __init__(self, vocab_size, ehr_adj, ddi_adj, emb_dim=64, device=torch.device('cpu:0'), ddi_in_memory=True):
+    def __init__(self, vocab_size, ehr_adj, ddi_adj, emb_dim=64, dropout=0.4, device=torch.device('cpu:0'), ddi_in_memory=True):
         super(GAMENet, self).__init__()
         K = len(vocab_size)
         self.K = K
@@ -51,7 +51,7 @@ class GAMENet(nn.Module):
         self.ddi_in_memory = ddi_in_memory
         self.embeddings = nn.ModuleList(
             [nn.Embedding(vocab_size[i], emb_dim) for i in range(K-1)])
-        self.dropout = nn.Dropout(p=0.4)
+        self.dropout = nn.Dropout(p=dropout)
 
         self.encoders = nn.ModuleList([nn.GRU(emb_dim, emb_dim*2, batch_first=True) for _ in range(K-1)])
 
@@ -152,7 +152,7 @@ class GAMENet(nn.Module):
 DMNC
 '''
 class DMNC(nn.Module):
-    def __init__(self, vocab_size, emb_dim=64, device=torch.device('cpu:0')):
+    def __init__(self, vocab_size, emb_dim=64, dropout=0.3, device=torch.device('cpu:0')):
         super(DMNC, self).__init__()
         K = len(vocab_size)
         self.K = K
@@ -164,7 +164,7 @@ class DMNC(nn.Module):
 
         self.embeddings = nn.ModuleList(
             [nn.Embedding(vocab_size[i] if i != 2 else vocab_size[2] + 2, emb_dim) for i in range(K)])
-        self.dropout = nn.Dropout(p=0.3)
+        self.dropout = nn.Dropout(p=dropout)
 
         self.encoders = nn.ModuleList([DNC(
             inputs_size=emb_dim,

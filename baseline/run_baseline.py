@@ -21,8 +21,10 @@ BASELINE_MODELS = ["GAMENet", "Leap", "Nearest"]
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--random_seed", type=int, default="1109",
+    parser.add_argument("--random_seed", type=int, default=1109,
                         help="random seed")
+    parser.add_argument("--log_interval", type=int, default=1000,
+                        help="log interval")
     # mode
     parser.add_argument('--train', action='store_true',
                         help="train mode on train set and eval on eval set")
@@ -39,6 +41,8 @@ def parse_args():
     parser.add_argument('--model_name', type=str, default="GAMENet", 
                         choices=BASELINE_MODELS,
                         help="baseline model name, choices: {}".format(", ".join(BASELINE_MODELS)))
+    parser.add_argument("--dropout", type=float, default=0.3,
+                        help="dropout rate")
     parser.add_argument('--ddi', action='store_true', default=False, 
                         help="using ddi for GAMENet")
     parser.add_argument("--target_ddi", type=float, default=0.05,
@@ -92,7 +96,7 @@ def main(args):
         #        y_target_tmp[adm[2]] = 1
         #        y_target.append(y_target_tmp)
 
-        for step, data in enumerate(evalloader):
+        for step, data in tqdm(enumerate(evalloader), total=len(evalloader)):
     
             if args.model_name == "GAMENet":
                 seq_inputs, y_target = data
@@ -132,8 +136,8 @@ def main(args):
             y_preds.append(y_pred)
             y_pred_probs.append(y_pred_prob)
             y_pred_labels.append(y_pred_label)
-            llprint('\rEval Epoch: {:4d} | Step: {:5d} / {:5d}'.format(epoch, step + 1, len(evalloader)))
-        print('')
+            #llprint('\rEval Epoch: {:4d} | Step: {:5d} / {:5d}'.format(epoch, step + 1, len(evalloader)))
+        #print('')
     
         # ddi rate
         ddi_rate = ddi_rate_score(y_pred_labels,
@@ -234,11 +238,13 @@ def main(args):
     
             loss_record.append(loss.item())
     
-            
-            llprint("\rTrain Epoch: {:3d} | Step: {:5d} / {:5d} "
-                    "| Loss: {:5.5f}".format(epoch, step + 1, len(train_loader), np.mean(loss_record)))
+            if step > 0 and step % args.log_interval == 0: 
+                print("\rTrain Epoch: {:3d} | Step: {:5d} / {:5d} "
+                      "| Loss: {:5.5f}".format(epoch, step, len(train_loader), np.mean(loss_record)))
+            #llprint("\rTrain Epoch: {:3d} | Step: {:5d} / {:5d} "
+            #        "| Loss: {:5.5f}".format(epoch, step + 1, len(train_loader), np.mean(loss_record)))
             #llprint('\rL_p count: %d, L_neg count: %d' % (prediction_loss_count, neg_loss_count))
-        print("")
+        #print("")
         return np.mean(loss_record)
 
 
@@ -292,9 +298,13 @@ def main(args):
         model = GAMENet(dataset.vocab_size, ehr_adj, ddi_adj, 
                         emb_dim=args.emb_dim, 
                         ddi_in_memory=args.ddi, 
+                        dropout=args.dropout,
                         device=device)
     elif args.model_name == "Leap":
-        model = Leap(dataset.vocab_size, emb_dim=args.emb_dim, device=device)
+        model = Leap(dataset.vocab_size, 
+                     emb_dim=args.emb_dim, 
+                     dropout=args.dropout,
+                     device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
 
