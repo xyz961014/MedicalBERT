@@ -30,6 +30,8 @@ def parse_args():
                         help="train mode on train set and eval on eval set")
     parser.add_argument('--eval', action='store_true',
                         help="eval mode on test set")
+    parser.add_argument('--eval_on_train', action='store_true',
+                        help="eval on train set")
     # save and load path
     parser.add_argument('--load_path', type=str, default="",
                         help='load checkpoint')
@@ -288,6 +290,8 @@ def main(args):
     train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name, 
                                                                     shuffle=args.shuffle, 
                                                                     permute=args.permute)
+    if args.eval_on_train:
+        train_eval_loader = dataset.get_train_eval_loader(args.model_name)
 
     if args.model_name == "GAMENet":
         ehr_adj, ddi_adj = dataset.get_extra_data(args.model_name)
@@ -342,9 +346,12 @@ def main(args):
             if args.model_name == "GAMENet":
                 T *= args.temperature_decay
 
+            if args.eval_on_train:
+                print("-" * 25 + "    Evaluating on Training Set    " + "-" * 25)
+                evaluate(train_eval_loader)
             print("-" * 25 + "    Evaluating {}    ".format(args.model_name) + "-" * 25)
             ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(eval_loader)
-            print("-" * (68 + len(args.model_name)))
+            print("-" * (70 + len(args.model_name)))
 
             history['jaccard'].append(jaccard)
             history['ddi_rate'].append(ddi_rate)
@@ -380,7 +387,7 @@ def main(args):
     # Evaluation
 
     if args.eval:
-        print("=" * 25 + "    Evaluating {}    ".format(args.model_name) + "=" * 25)
+        print("=" * 25 + "    Testing {}    ".format(args.model_name) + "=" * 25)
         if non_trivial:
             model.load_state_dict(torch.load(open(os.path.join(save_path, best_ckp), "rb")))
         evaluate(test_loader)

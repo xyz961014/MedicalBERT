@@ -38,6 +38,9 @@ class MedicalRecommendationDataset(object):
         test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.med_vocab_size, evaluate=True)
         return train_loader, eval_loader, test_loader
 
+    def get_train_eval_loader(self, model_name):
+        return MedicalRecommendationDataloader(self.data_train, model_name, self.med_vocab_size, evaluate=True)
+
 
     def get_extra_data(self, model_name):
         if model_name == "GAMENet":

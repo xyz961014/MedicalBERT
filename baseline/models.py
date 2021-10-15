@@ -9,7 +9,7 @@ from layers import GraphConvolution
 Our model
 '''
 class GCN(nn.Module):
-    def __init__(self, voc_size, emb_dim, adj, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, emb_dim, adj, dropout, device=torch.device('cpu:0')):
         super(GCN, self).__init__()
         self.voc_size = voc_size
         self.emb_dim = emb_dim
@@ -21,7 +21,7 @@ class GCN(nn.Module):
         self.x = torch.eye(voc_size).to(device)
 
         self.gcn1 = GraphConvolution(voc_size, emb_dim)
-        self.dropout = nn.Dropout(p=0.3)
+        self.dropout = nn.Dropout(p=dropout)
         self.gcn2 = GraphConvolution(emb_dim, emb_dim)
 
     def forward(self):
@@ -60,8 +60,8 @@ class GAMENet(nn.Module):
             nn.Linear(emb_dim * 4, emb_dim),
         )
 
-        self.ehr_gcn = GCN(voc_size=vocab_size[2], emb_dim=emb_dim, adj=ehr_adj, device=device)
-        self.ddi_gcn = GCN(voc_size=vocab_size[2], emb_dim=emb_dim, adj=ddi_adj, device=device)
+        self.ehr_gcn = GCN(voc_size=vocab_size[2], emb_dim=emb_dim, adj=ehr_adj, dropout=dropout, device=device)
+        self.ddi_gcn = GCN(voc_size=vocab_size[2], emb_dim=emb_dim, adj=ddi_adj, dropout=dropout, device=device)
         self.inter = nn.Parameter(torch.FloatTensor(1))
 
         self.output = nn.Sequential(
