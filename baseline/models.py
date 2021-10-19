@@ -5,9 +5,6 @@ import numpy as np
 from dnc import DNC
 from layers import GraphConvolution
 
-'''
-Our model
-'''
 class GCN(nn.Module):
     def __init__(self, voc_size, emb_dim, adj, dropout, device=torch.device('cpu:0')):
         super(GCN, self).__init__()
@@ -289,7 +286,7 @@ class DMNC(nn.Module):
 Leap
 '''
 class Leap(nn.Module):
-    def __init__(self, voc_size, emb_dim=128, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, emb_dim=128, dropout=0.3, device=torch.device('cpu:0')):
         super(Leap, self).__init__()
         self.voc_size = voc_size
         self.device = device
@@ -298,11 +295,11 @@ class Leap(nn.Module):
 
         self.enc_embedding = nn.Sequential(
             nn.Embedding(voc_size[0], emb_dim, ),
-            nn.Dropout(0.3)
+            nn.Dropout(dropout)
         )
         self.dec_embedding = nn.Sequential(
             nn.Embedding(voc_size[2] + 2, emb_dim, ),
-            nn.Dropout(0.3)
+            nn.Dropout(dropout)
         )
 
         self.dec_gru = nn.GRU(emb_dim*2, emb_dim, batch_first=True)
@@ -365,26 +362,26 @@ class Leap(nn.Module):
 Retain
 '''
 class Retain(nn.Module):
-    def __init__(self, voc_size, emb_size=64, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, emb_dim=64, device=torch.device('cpu:0')):
         super(Retain, self).__init__()
         self.device = device
         self.voc_size = voc_size
-        self.emb_size = emb_size
+        self.emb_dim = emb_dim
         self.inputs_len = voc_size[0] + voc_size[1] + voc_size[2]
         self.output_len = voc_size[2]
 
         self.embedding = nn.Sequential(
-            nn.Embedding(self.inputs_len + 1, self.emb_size, padding_idx=self.inputs_len),
+            nn.Embedding(self.inputs_len + 1, self.emb_dim, padding_idx=self.inputs_len),
             nn.Dropout(0.3)
         )
 
-        self.alpha_gru = nn.GRU(emb_size, emb_size, batch_first=True)
-        self.beta_gru = nn.GRU(emb_size, emb_size, batch_first=True)
+        self.alpha_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
+        self.beta_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
 
-        self.alpha_li = nn.Linear(emb_size, 1)
-        self.beta_li = nn.Linear(emb_size, emb_size)
+        self.alpha_li = nn.Linear(emb_dim, 1)
+        self.beta_li = nn.Linear(emb_dim, emb_dim)
 
-        self.output = nn.Linear(emb_size, self.output_len)
+        self.output = nn.Linear(emb_dim, self.output_len)
 
     def forward(self, inputs):
         device = self.device
@@ -418,7 +415,107 @@ class Retain(nn.Module):
         return self.output(c)
 
 '''
-RF in train_LR.py
+MLP
 '''
+class MLP(nn.Module):
+    def __init__(self, vocab_size, emb_dim=64, seq_len=32, hidden_size=1024, num_layers=3, dropout=0.5, 
+                 device=torch.device('cpu:0')):
+        super().__init__()
+        self.device = device
+        self.vocab_size = vocab_size
+        self.emb_dim = emb_dim
+        self.seq_len = seq_len
+        self.output_size = vocab_size[2]
+        self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1] + 3
+
+        # add <cls> <diag> <proc> <pad>
+        self.dropout = nn.Dropout(p=dropout)
+        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 4, emb_dim) 
+        self.linear = nn.Sequential(
+                        nn.Linear(emb_dim * seq_len, hidden_size),
+                        nn.ReLU()
+                    )
+        self.layers = nn.Sequential(*[nn.Sequential(nn.Linear(hidden_size, hidden_size), 
+                                                    nn.ReLU()) 
+                                      for _ in range(num_layers - 1)])
+        self.output = nn.Linear(hidden_size, self.output_size)
+
+    def convert_to_embedding(self, inputs):
+        if len(inputs) >= self.seq_len:
+            inputs = inputs[:self.seq_len]
+        else:
+            inputs = inputs + [self.PAD_TOKEN for _ in range(self.seq_len - len(inputs))]
+        embedding = self.embedding(torch.LongTensor(inputs).to(self.device))
+        embedding = F.dropout(embedding, p=0.1)
+        return embedding
+
+
+    def forward(self, inputs):
+        device = self.device
+
+        embedding = self.convert_to_embedding(inputs)
+        hidden_state = self.dropout(self.linear(embedding.reshape(-1)))
+        hidden_state = self.dropout(self.layers(hidden_state))
+        output = self.output(hidden_state)
+        
+        return output.unsqueeze(dim=0)
+
+class DualMLP(nn.Module):
+    def __init__(self, vocab_size, emb_dim=64, seq_len=16, hidden_size=512, num_layers=3, dropout=0.5, 
+                 device=torch.device('cpu:0')):
+        super().__init__()
+        self.device = device
+        self.vocab_size = vocab_size
+        self.emb_dim = emb_dim
+        self.seq_len = seq_len
+        self.output_size = vocab_size[2]
+        self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1]
+
+        # add <pad>
+        self.dropout = nn.Dropout(p=dropout)
+        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 1, emb_dim) 
+        self.linear_diag = nn.Sequential(
+                               nn.Linear(emb_dim * seq_len, hidden_size),
+                               nn.ReLU()
+                           )
+        self.linear_proc = nn.Sequential(
+                               nn.Linear(emb_dim * seq_len, hidden_size),
+                               nn.ReLU()
+                           )
+        self.layers_diag = nn.Sequential(*[nn.Sequential(nn.Linear(hidden_size, hidden_size), 
+                                                         nn.ReLU()) 
+                                           for _ in range(num_layers - 1)])
+        self.layers_proc = nn.Sequential(*[nn.Sequential(nn.Linear(hidden_size, hidden_size), 
+                                                         nn.ReLU()) 
+                                           for _ in range(num_layers - 1)])
+        self.output = nn.Linear(hidden_size * 2, self.output_size)
+
+    def convert_to_embedding(self, inputs):
+        if len(inputs) >= self.seq_len:
+            inputs = inputs[:self.seq_len]
+        else:
+            inputs = inputs + [self.PAD_TOKEN for _ in range(self.seq_len - len(inputs))]
+        embedding = self.embedding(torch.LongTensor(inputs).to(self.device))
+        embedding = F.dropout(embedding, p=0.1)
+        return embedding
+
+
+    def forward(self, inputs):
+        device = self.device
+
+        diags, procs = inputs
+        diag_embedding = self.convert_to_embedding(diags)
+        proc_embedding = self.convert_to_embedding(procs)
+
+        diag_hidden_state = self.dropout(self.linear_diag(diag_embedding.reshape(-1)))
+        diag_hidden_state = self.dropout(self.layers_diag(diag_hidden_state))
+        proc_hidden_state = self.dropout(self.linear_proc(proc_embedding.reshape(-1)))
+        proc_hidden_state = self.dropout(self.layers_proc(proc_hidden_state))
+
+        output = self.output(torch.cat((diag_hidden_state, proc_hidden_state)))
+        
+        return output.unsqueeze(dim=0)
+
+
 
 

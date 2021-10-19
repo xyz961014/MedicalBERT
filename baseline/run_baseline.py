@@ -10,13 +10,13 @@ import torch.nn.functional as F
 from collections import defaultdict
 from tqdm import tqdm
 
-from models import GAMENet, Leap
+from models import GAMENet, Leap, MLP, DualMLP
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import MedicalRecommendationDataset
 import ipdb
 
-BASELINE_MODELS = ["GAMENet", "Leap", "Nearest"]
+BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP"]
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -55,6 +55,12 @@ def parse_args():
                         help="temperature decay weight for GAMENet")
     parser.add_argument("--emb_dim", type=int, default=64,
                         help="embedding dimension")
+    parser.add_argument("--seq_len", type=int, default=32,
+                        help="sequence length")
+    parser.add_argument("--hidden_size", type=int, default=512,
+                        help="size of hidden state in MLP")
+    parser.add_argument("--num_layers", type=int, default=3,
+                        help="number of layers in MLP")
     # train setting
     parser.add_argument("--epochs", type=int, default=40,
                         help="training epochs")
@@ -111,7 +117,6 @@ def main(args):
                 y_pred = y_pred_tmp
                 y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
                 y_pred_label = sorted(y_pred_label_tmp)
-                med_count += len(y_pred_label_tmp)
             elif args.model_name == "Leap":
                 admission, y_target = data
                 output_logits = model(admission)
@@ -122,7 +127,6 @@ def main(args):
                 y_pred_tmp = np.zeros(vocab_size[2])
                 y_pred_tmp[out_list] = 1
                 y_pred = y_pred_tmp
-                med_count += len(sorted_predict)
             elif args.model_name == "Nearest":
                 pred_list, y_target = data
                 y_pred_label = sorted(pred_list)
@@ -130,7 +134,19 @@ def main(args):
                 y_pred_tmp[pred_list] = 1
                 y_pred = y_pred_tmp
                 y_pred_prob = y_pred_tmp
+            elif args.model_name in ["MLP", "DualMLP"]:
+                union_inputs, y_target = data
+                target_output = model(union_inputs)
+                target_output = F.sigmoid(target_output).detach().cpu().numpy()[0]
+                y_pred_prob = target_output
+                y_pred_tmp = target_output.copy()
+                y_pred_tmp[y_pred_tmp>=0.5] = 1
+                y_pred_tmp[y_pred_tmp<0.5] = 0
+                y_pred = y_pred_tmp
+                y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+                y_pred_label = sorted(y_pred_label_tmp)
 
+            med_count += len(y_pred_label)
             visit_count += 1
     
     
@@ -232,6 +248,12 @@ def main(args):
                 output_logits = model(admission)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
+            elif args.model_name in ["MLP", "DualMLP"]:
+                inputs, loss_target = data
+                output_target = model(inputs)
+                loss = F.binary_cross_entropy_with_logits(output_target, 
+                                                          torch.FloatTensor(loss_target).to(device))
+
 
             # optimize
             optimizer.zero_grad()
@@ -309,6 +331,22 @@ def main(args):
                      emb_dim=args.emb_dim, 
                      dropout=args.dropout,
                      device=device)
+    elif args.model_name == "MLP":
+        model = MLP(dataset.vocab_size,
+                    emb_dim=args.emb_dim,
+                    seq_len=args.seq_len,
+                    hidden_size=args.hidden_size,
+                    num_layers=args.num_layers,
+                    dropout=args.dropout,
+                    device=device)
+    elif args.model_name == "DualMLP":
+        model = DualMLP(dataset.vocab_size,
+                    emb_dim=args.emb_dim,
+                    seq_len=args.seq_len,
+                    hidden_size=args.hidden_size,
+                    num_layers=args.num_layers,
+                    dropout=args.dropout,
+                    device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
 

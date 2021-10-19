@@ -32,14 +32,14 @@ class MedicalRecommendationDataset(object):
         self.data_eval = self.data[split_point+eval_len:]
 
     def get_dataloader(self, model_name, shuffle=False, permute=False):
-        train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.med_vocab_size, 
+        train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.vocab_size, 
                                                        shuffle=shuffle, permute=permute)
-        eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.med_vocab_size, evaluate=True)
-        test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.med_vocab_size, evaluate=True)
+        eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.vocab_size, evaluate=True)
+        test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.vocab_size, evaluate=True)
         return train_loader, eval_loader, test_loader
 
     def get_train_eval_loader(self, model_name):
-        return MedicalRecommendationDataloader(self.data_train, model_name, self.med_vocab_size, evaluate=True)
+        return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab_size, evaluate=True)
 
 
     def get_extra_data(self, model_name):
@@ -49,17 +49,26 @@ class MedicalRecommendationDataset(object):
             return ehr_adj, ddi_adj
 
 class MedicalRecommendationDataloader(object):
-    def __init__(self, data, model_name, med_vocab_size, shuffle=False, permute=False, batch_size=1, evaluate=False):
+    def __init__(self, data, model_name, vocab_size, shuffle=False, permute=False, batch_size=1, evaluate=False):
         self.data = data
         self.shuffle = shuffle
         self.permute = permute
         self.batch_size = batch_size
         self.model_name = model_name
-        self.med_vocab_size = med_vocab_size
+        self.diag_vocab_size = vocab_size[0]
+        self.proc_vocab_size = vocab_size[1]
+        self.med_vocab_size = vocab_size[2]
         self.evaluate = evaluate
         if evaluate:
             self.shuffle = False
             self.permute = False
+
+        if model_name == "Leap":
+            self.END_TOKEN = self.med_vocab_size + 1
+        elif model_name in ["MLP"]:
+            self.CLS_TOKEN = self.diag_vocab_size + self.proc_vocab_size
+            self.DIAG_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 1
+            self.PROC_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 2
 
     def __len__(self):
         if self.evaluate:
@@ -99,15 +108,36 @@ class MedicalRecommendationDataloader(object):
                     else:
                         yield seq_inputs, loss1_target, loss3_target
                 elif self.model_name == "Leap":
-                    END_TOKEN = self.med_vocab_size + 1
                     if self.evaluate:
                         yield admission, y_target
                     else:
-                        yield admission, admission[2] + [END_TOKEN]
+                        yield admission, admission[2] + [self.END_TOKEN]
                 elif self.model_name == "Nearest":
                     if self.evaluate:
                         yield patient[idx-1][2], y_target
-
+                elif self.model_name in ["MLP"]:
+                    # Single input with <cls> <diag> <proc>
+                    diags = admission[0]
+                    procs = [p + self.diag_vocab_size for p in admission[1]]
+                    meds = admission[2]
+                    union_inputs = [self.CLS_TOKEN, self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
+                    loss_target = np.zeros((1, self.med_vocab_size))
+                    loss_target[:, meds] = 1
+                    if self.evaluate:
+                        yield union_inputs, y_target
+                    else:
+                        yield union_inputs, loss_target
+                elif self.model_name in ["DualMLP"]:
+                    # dual input
+                    diags = admission[0]
+                    procs = [p + self.diag_vocab_size for p in admission[1]]
+                    meds = admission[2]
+                    loss_target = np.zeros((1, self.med_vocab_size))
+                    loss_target[:, meds] = 1
+                    if self.evaluate:
+                        yield (diags, procs), y_target
+                    else:
+                        yield (diags, procs), loss_target
 
 # use the same metric from DMNC
 def llprint(message):
