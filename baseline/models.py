@@ -695,6 +695,7 @@ class Transformer(nn.Module):
     
     def forward(self, inputs):
         x = self.convert_to_embedding(inputs).unsqueeze(0)
+
         for layer in self.layers:
             x = layer(x)
 

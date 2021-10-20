@@ -57,10 +57,20 @@ def parse_args():
                         help="embedding dimension")
     parser.add_argument("--seq_len", type=int, default=32,
                         help="sequence length")
-    parser.add_argument("--hidden_size", type=int, default=512,
-                        help="size of hidden state in MLP")
-    parser.add_argument("--num_layers", type=int, default=3,
-                        help="number of layers in MLP")
+    parser.add_argument("--hidden_size", type=int, default=128,
+                        help="size of hidden state in MLP and Transformer")
+    parser.add_argument("--num_layers", type=int, default=1,
+                        help="number of layers in MLP and Transformer")
+    parser.add_argument("--alpha_bce", type=float, default=0.9,
+                        help="multiply factor of bce loss")
+    parser.add_argument("--alpha_margin", type=float, default=0.01,
+                        help="multiply factor of margin loss")
+    parser.add_argument("--head_size", type=int, default=16,
+                        help="head size in Transformer")
+    parser.add_argument("--num_heads", type=int, default=8,
+                        help="number of heads in Transformer")
+    parser.add_argument("--filter_size", type=int, default=512,
+                        help="FFN filter size in Transformer")
     # train setting
     parser.add_argument("--epochs", type=int, default=40,
                         help="training epochs")
@@ -231,7 +241,7 @@ def main(args):
                     current_ddi_rate = ddi_rate_score([[y_label]], 
                                                       path=os.path.join(args.data_path, "ddi_A_final.pkl"))
                     if current_ddi_rate <= args.target_ddi:
-                        loss = 0.9 * loss1 + 0.01 * loss3
+                        loss = args.alpha_bce * loss1 + args.alpha_margin * loss3
                         prediction_loss_count += 1
                     else:
                         rnd = np.exp((args.target_ddi - current_ddi_rate)/T)
@@ -239,20 +249,23 @@ def main(args):
                             loss = batch_neg_loss
                             neg_loss_count += 1
                         else:
-                            loss = 0.9 * loss1 + 0.01 * loss3
+                            loss = args.alpha_bce * loss1 + args.alpha_margin * loss3
                             prediction_loss_count += 1
                 else:
-                    loss = 0.9 * loss1 + 0.01 * loss3
+                    loss = args.alpha_bce * loss1 + args.alpha_margin * loss3
             elif args.model_name == "Leap":
                 admission, loss_target = data
                 output_logits = model(admission)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
             elif args.model_name in ["MLP", "DualMLP", "Transformer"]:
-                inputs, loss_target = data
+                inputs, bce_loss_target, margin_loss_target = data
                 output_target = model(inputs)
-                loss = F.binary_cross_entropy_with_logits(output_target, 
-                                                          torch.FloatTensor(loss_target).to(device))
+                bce_loss = F.binary_cross_entropy_with_logits(output_target, 
+                                                              torch.FloatTensor(bce_loss_target).to(device))
+                margin_loss = F.multilabel_margin_loss(F.sigmoid(output_target), 
+                                                       torch.LongTensor(margin_loss_target).to(device))
+                loss = args.alpha_bce * bce_loss + args.alpha_margin * margin_loss
 
 
             # optimize
@@ -350,6 +363,9 @@ def main(args):
     elif args.model_name == "Transformer":
         model = Transformer(dataset.vocab_size,
                             hidden_size=args.hidden_size,
+                            head_size=args.head_size,
+                            num_heads=args.num_heads,
+                            filter_size=args.filter_size,
                             num_layers=args.num_layers,
                             dropout=args.dropout,
                             device=device)
@@ -391,9 +407,9 @@ def main(args):
                 T *= args.temperature_decay
 
             if args.eval_on_train:
-                print("-" * 25 + "    Evaluating on Training Set    " + "-" * 25)
+                print("-" * 25 + "    Epoch %d Evaluating on Training Set    " % epoch + "-" * 25)
                 evaluate(train_eval_loader)
-            print("-" * 25 + "    Evaluating {}    ".format(args.model_name) + "-" * 25)
+            print("-" * 25 + "    Epoch {} Evaluating {}    ".format(epoch, args.model_name) + "-" * 25)
             ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(eval_loader)
             print("-" * (70 + len(args.model_name)))
 
@@ -407,10 +423,11 @@ def main(args):
             end_time = time.time()
             elapsed_time = (end_time - start_time) / 60
             llprint('Epoch: %d, Loss: %.4f, One Epoch Time: %.2fm, '
-                    'Appro Left Time: %.2fm\n' % (epoch,
-                                                  mean_loss,
-                                                  elapsed_time,
-                                                  elapsed_time * (args.epochs - epoch)))
+                    'Approximate Left Time: %dh%dm\n' % (epoch,
+                                                         mean_loss,
+                                                         elapsed_time,
+                                                         int(elapsed_time * (args.epochs - epoch)) // 60,
+                                                         int(elapsed_time * (args.epochs - epoch)) % 60))
 
             ckp_name = 'Epoch_%d_JACCARD_%.4f_DDI_%.4f.model' % (epoch, jaccard, ddi_rate)
             torch.save(model.state_dict(), open(os.path.join(save_path, ckp_name), 'wb'))

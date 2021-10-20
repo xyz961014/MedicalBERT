@@ -121,23 +121,29 @@ class MedicalRecommendationDataloader(object):
                     procs = [p + self.diag_vocab_size for p in admission[1]]
                     meds = admission[2]
                     union_inputs = [self.CLS_TOKEN, self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
-                    loss_target = np.zeros((1, self.med_vocab_size))
-                    loss_target[:, meds] = 1
+                    bce_loss_target = np.zeros((1, self.med_vocab_size))
+                    bce_loss_target[:, meds] = 1
+                    margin_loss_target = np.full((1, self.med_vocab_size), -1)
+                    for i, item in enumerate(meds):
+                        margin_loss_target[0][i] = item
                     if self.evaluate:
                         yield union_inputs, y_target
                     else:
-                        yield union_inputs, loss_target
+                        yield union_inputs, bce_loss_target, margin_loss_target
                 elif self.model_name in ["DualMLP"]:
                     # dual input
                     diags = admission[0]
                     procs = [p + self.diag_vocab_size for p in admission[1]]
                     meds = admission[2]
-                    loss_target = np.zeros((1, self.med_vocab_size))
-                    loss_target[:, meds] = 1
+                    bce_loss_target = np.zeros((1, self.med_vocab_size))
+                    bce_loss_target[:, meds] = 1
+                    margin_loss_target = np.full((1, self.med_vocab_size), -1)
+                    for i, item in enumerate(meds):
+                        margin_loss_target[0][i] = item
                     if self.evaluate:
                         yield (diags, procs), y_target
                     else:
-                        yield (diags, procs), loss_target
+                        yield (diags, procs), bce_loss_target, margin_loss_target
 
 # use the same metric from DMNC
 def llprint(message):
