@@ -10,13 +10,13 @@ import torch.nn.functional as F
 from collections import defaultdict
 from tqdm import tqdm
 
-from models import GAMENet, Leap, MLP, DualMLP
+from models import GAMENet, Leap, MLP, DualMLP, Transformer
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import MedicalRecommendationDataset
 import ipdb
 
-BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP"]
+BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", "Transformer"]
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -134,7 +134,7 @@ def main(args):
                 y_pred_tmp[pred_list] = 1
                 y_pred = y_pred_tmp
                 y_pred_prob = y_pred_tmp
-            elif args.model_name in ["MLP", "DualMLP"]:
+            elif args.model_name in ["MLP", "DualMLP", "Transformer"]:
                 union_inputs, y_target = data
                 target_output = model(union_inputs)
                 target_output = F.sigmoid(target_output).detach().cpu().numpy()[0]
@@ -248,7 +248,7 @@ def main(args):
                 output_logits = model(admission)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
-            elif args.model_name in ["MLP", "DualMLP"]:
+            elif args.model_name in ["MLP", "DualMLP", "Transformer"]:
                 inputs, loss_target = data
                 output_target = model(inputs)
                 loss = F.binary_cross_entropy_with_logits(output_target, 
@@ -341,12 +341,18 @@ def main(args):
                     device=device)
     elif args.model_name == "DualMLP":
         model = DualMLP(dataset.vocab_size,
-                    emb_dim=args.emb_dim,
-                    seq_len=args.seq_len,
-                    hidden_size=args.hidden_size,
-                    num_layers=args.num_layers,
-                    dropout=args.dropout,
-                    device=device)
+                        emb_dim=args.emb_dim,
+                        seq_len=args.seq_len,
+                        hidden_size=args.hidden_size,
+                        num_layers=args.num_layers,
+                        dropout=args.dropout,
+                        device=device)
+    elif args.model_name == "Transformer":
+        model = Transformer(dataset.vocab_size,
+                            hidden_size=args.hidden_size,
+                            num_layers=args.num_layers,
+                            dropout=args.dropout,
+                            device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
 

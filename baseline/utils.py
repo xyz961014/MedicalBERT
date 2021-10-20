@@ -65,7 +65,7 @@ class MedicalRecommendationDataloader(object):
 
         if model_name == "Leap":
             self.END_TOKEN = self.med_vocab_size + 1
-        elif model_name in ["MLP"]:
+        elif model_name in ["MLP", "Transformer"]:
             self.CLS_TOKEN = self.diag_vocab_size + self.proc_vocab_size
             self.DIAG_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 1
             self.PROC_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 2
@@ -115,7 +115,7 @@ class MedicalRecommendationDataloader(object):
                 elif self.model_name == "Nearest":
                     if self.evaluate:
                         yield patient[idx-1][2], y_target
-                elif self.model_name in ["MLP"]:
+                elif self.model_name in ["MLP", "Transformer"]:
                     # Single input with <cls> <diag> <proc>
                     diags = admission[0]
                     procs = [p + self.diag_vocab_size for p in admission[1]]

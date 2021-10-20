@@ -418,6 +418,7 @@ class Retain(nn.Module):
 MLP
 '''
 class MLP(nn.Module):
+
     def __init__(self, vocab_size, emb_dim=64, seq_len=32, hidden_size=1024, num_layers=3, dropout=0.5, 
                  device=torch.device('cpu:0')):
         super().__init__()
@@ -461,6 +462,7 @@ class MLP(nn.Module):
         return output.unsqueeze(dim=0)
 
 class DualMLP(nn.Module):
+
     def __init__(self, vocab_size, emb_dim=64, seq_len=16, hidden_size=512, num_layers=3, dropout=0.5, 
                  device=torch.device('cpu:0')):
         super().__init__()
@@ -516,6 +518,190 @@ class DualMLP(nn.Module):
         
         return output.unsqueeze(dim=0)
 
+
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, hidden_size, head_size, num_heads, dropout=0.0):
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.head_size = head_size
+        self.num_heads = num_heads
+
+        attention_hidden_size = num_heads * head_size
+        self.attention_hidden_size = attention_hidden_size
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.q_transform = nn.Linear(hidden_size, attention_hidden_size)
+        self.k_transform = nn.Linear(hidden_size, attention_hidden_size)
+        self.v_transform = nn.Linear(hidden_size, attention_hidden_size)
+        self.o_transform = nn.Linear(attention_hidden_size, hidden_size)
+
+        self.reset_parameters()
+
+    @staticmethod
+    def split_heads(x, heads):
+        batch = x.shape[0]
+        length = x.shape[1]
+        channels = x.shape[2]
+
+        y = torch.reshape(x, [batch, length, heads, channels // heads])
+        return torch.transpose(y, 2, 1)
+
+    @staticmethod
+    def combine_heads(x):
+        batch = x.shape[0]
+        heads = x.shape[1]
+        length = x.shape[2]
+        channels = x.shape[3]
+
+        y = torch.transpose(x, 2, 1)
+
+        return torch.reshape(y, [batch, length, heads * channels])
+
+    def forward(self, x):
+        q = self.q_transform(x)
+        k = self.k_transform(x)
+        v = self.v_transform(x)
+
+        qh = self.split_heads(q, self.num_heads)
+        kh = self.split_heads(k, self.num_heads)
+        vh = self.split_heads(v, self.num_heads)
+
+        qh = qh * (self.head_size ** -0.5)
+        
+        kh = kh.transpose(-2, -1)
+        logits = torch.matmul(qh, kh)
+
+        weights = self.dropout(torch.softmax(logits, dim=-1))
+        
+        y = torch.matmul(weights, vh)
+
+        outputs = self.o_transform(self.combine_heads(y))
+
+        return outputs
+
+    def reset_parameters(self, initializer="uniform_scaling", **kwargs):
+        if initializer == "uniform_scaling":
+            # 6 / (4 * hidden_size) -> 6 / (2 * hidden_size)
+            nn.init.xavier_uniform_(self.q_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.k_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.v_transform.weight, 2 ** -0.5)
+            nn.init.xavier_uniform_(self.o_transform.weight)
+            nn.init.constant_(self.q_transform.bias, 0.0)
+            nn.init.constant_(self.k_transform.bias, 0.0)
+            nn.init.constant_(self.v_transform.bias, 0.0)
+            nn.init.constant_(self.o_transform.bias, 0.0)
+        else:
+            raise ValueError("Unknown initializer %d" % initializer)
+
+class FeedForward(nn.Module):
+
+    def __init__(self, input_size, hidden_size, output_size=None, dropout=0.0):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size or input_size
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.input_transform = nn.Linear(input_size, hidden_size)
+        self.output_transform = nn.Linear(hidden_size, self.output_size)
+
+        self.reset_parameters()
+
+    def forward(self, x):
+        h = F.relu(self.input_transform(x))
+        h = self.dropout(h)
+        output = self.output_transform(h)
+        return output
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.input_transform.weight)
+        nn.init.xavier_uniform_(self.output_transform.weight)
+        nn.init.constant_(self.input_transform.bias, 0.0)
+        nn.init.constant_(self.output_transform.bias, 0.0)
+
+
+class AttentionSubLayer(nn.Module):
+
+    def __init__(self, hidden_size, head_size, num_heads, dropout):
+        super().__init__()
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.attention = MultiHeadAttention(hidden_size=hidden_size,
+                                            head_size=head_size,
+                                            num_heads=num_heads,
+                                            dropout=dropout)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x):
+        y = self.attention(x)
+        y = self.dropout(y)
+        return self.layer_norm(x + y)
+
+
+class FFNSubLayer(nn.Module):
+
+    def __init__(self, hidden_size, filter_size, dropout):
+        super().__init__()
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.ffn_layer = FeedForward(input_size=hidden_size,
+                                     hidden_size=filter_size,
+                                     dropout=dropout)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x):
+        y = self.ffn_layer(x)
+        y = self.dropout(y)
+        return self.layer_norm(x + y)
+
+
+class TransformerEncoderLayer(nn.Module):
+
+    def __init__(self, hidden_size, head_size, num_heads, filter_size, dropout):
+        super().__init__()
+        self.self_attention = AttentionSubLayer(hidden_size, head_size, num_heads, dropout)
+        self.feed_forward = FFNSubLayer(hidden_size, filter_size, dropout)
+
+    def forward(self, x):
+        x = self.self_attention(x)
+        x = self.feed_forward(x)
+        return x
+
+class Transformer(nn.Module):
+
+    def __init__(self, vocab_size, hidden_size=256, head_size=32, num_heads=8, filter_size=1024, num_layers=6, 
+                 dropout=0.5, device=torch.device('cpu:0')):
+        super().__init__()
+        self.device = device
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.output_size = vocab_size[2]
+
+        # add <cls> <diag> <proc>
+        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 3, hidden_size) 
+        self.layers = nn.ModuleList([
+            TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
+            for i in range(num_layers)])
+
+        self.output = nn.Linear(hidden_size, self.output_size)
+
+    def convert_to_embedding(self, inputs):
+        embedding = self.embedding(torch.LongTensor(inputs).to(self.device))
+        embedding = F.dropout(embedding, p=0.1)
+        return embedding
+    
+    def forward(self, inputs):
+        x = self.convert_to_embedding(inputs).unsqueeze(0)
+        for layer in self.layers:
+            x = layer(x)
+
+        cls_output = x.squeeze(0)[0, :]
+        output = self.output(cls_output)
+
+        return output.unsqueeze(dim=0)
 
 
 
