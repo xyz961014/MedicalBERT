@@ -43,8 +43,6 @@ def parse_args():
     parser.add_argument('--model_name', type=str, default="GAMENet", 
                         choices=BASELINE_MODELS,
                         help="baseline model name, choices: {}".format(", ".join(BASELINE_MODELS)))
-    parser.add_argument("--dropout", type=float, default=0.3,
-                        help="dropout rate")
     parser.add_argument('--ddi', action='store_true', default=False, 
                         help="using ddi for GAMENet")
     parser.add_argument("--target_ddi", type=float, default=0.05,
@@ -76,6 +74,10 @@ def parse_args():
                         help="training epochs")
     parser.add_argument("--learning_rate", type=float, default=2e-4,
                         help="learning rate")
+    parser.add_argument("--weight_decay", type=float, default=0.0,
+                        help="weight decay")
+    parser.add_argument("--dropout", type=float, default=0.3,
+                        help="dropout rate")
     parser.add_argument('--shuffle', action='store_true',
                         help="shuffle data when training")
     parser.add_argument('--permute', action='store_true',
@@ -384,7 +386,7 @@ def main(args):
 
     if args.train and non_trivial:
 
-        optimizer = Adam(model.parameters(), lr=args.learning_rate)
+        optimizer = Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
         
         history = defaultdict(list)
         best_epoch = 0
