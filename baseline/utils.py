@@ -8,18 +8,19 @@ import random
 from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
+
 warnings.filterwarnings('ignore')
 
 class MedicalRecommendationDataset(object):
-    def __init__(self, data_path, train_set_ratio=2/3):
+    def __init__(self, data_path, data_prefix, train_set_ratio=2/3):
 
         self.data_path = data_path
-        self.data = dill.load(open(os.path.join(data_path, "records_final.pkl"), "rb"))
-        self.vocab = dill.load(open(os.path.join(data_path, "voc_final.pkl"), "rb"))
+        self.data = dill.load(open(os.path.join(data_path, "{}_records.pkl".format(data_prefix)), "rb"))
+        self.vocab = dill.load(open(os.path.join(data_path, "{}_vocab.pkl".format(data_prefix)), "rb"))
         # get vocab_size
-        self.diag_vocab = self.vocab['diag_voc']
-        self.proc_vocab = self.vocab['pro_voc']
-        self.med_vocab = self.vocab['med_voc']
+        self.diag_vocab = self.vocab['diag_vocab']
+        self.proc_vocab = self.vocab['proc_vocab']
+        self.med_vocab = self.vocab['med_vocab']
         self.diag_vocab_size = len(self.diag_vocab.idx2word)
         self.proc_vocab_size = len(self.proc_vocab.idx2word)
         self.med_vocab_size = len(self.med_vocab.idx2word)

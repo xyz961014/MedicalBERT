@@ -4,6 +4,7 @@ import numpy as np
 import dill
 import time
 import os
+import sys
 from torch.nn import CrossEntropyLoss
 from torch.optim import Adam
 import torch.nn.functional as F
@@ -14,6 +15,10 @@ from models import GAMENet, Leap, MLP, DualMLP, Transformer
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import MedicalRecommendationDataset
+
+sys.path.append("..")
+from data.build_vocab_and_records import Vocab
+
 import ipdb
 
 BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", "Transformer"]
@@ -37,8 +42,10 @@ def parse_args():
                         help='load checkpoint')
     parser.add_argument("--save_path", type=str, default="/home/xyz/xyz/experiments/medical",
                         help="dir path to save the model")
-    parser.add_argument("--data_path", type=str, default="/home/xyz/xyz/Projects/GAMENet/data",
+    parser.add_argument("--data_path", type=str, default="../data",
                         help="dir path of processed data")
+    parser.add_argument("--data_prefix", type=str, default="multi_visit",
+                        help="prefix of processed data")
     # model setting
     parser.add_argument('--model_name', type=str, default="GAMENet", 
                         choices=BASELINE_MODELS,
@@ -323,7 +330,7 @@ def main(args):
     #ehr_adj = dill.load(open(os.path.join(args.data_path, "ehr_adj_final.pkl"), "rb"))
     #ddi_adj = dill.load(open(os.path.join(args.data_path, "ddi_A_final.pkl"), "rb"))
 
-    dataset = MedicalRecommendationDataset(args.data_path)
+    dataset = MedicalRecommendationDataset(args.data_path, args.data_prefix)
     train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name, 
                                                                     shuffle=args.shuffle, 
                                                                     permute=args.permute)
