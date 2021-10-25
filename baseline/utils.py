@@ -32,15 +32,18 @@ class MedicalRecommendationDataset(object):
         self.data_test = self.data[split_point:split_point + eval_len]
         self.data_eval = self.data[split_point+eval_len:]
 
-    def get_dataloader(self, model_name, shuffle=False, permute=False):
+    def get_dataloader(self, model_name, shuffle=False, permute=False, history=False):
         train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.vocab_size, 
-                                                       shuffle=shuffle, permute=permute)
-        eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.vocab_size, evaluate=True)
-        test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.vocab_size, evaluate=True)
+                                                       shuffle=shuffle, permute=permute, history=history)
+        eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.vocab_size, 
+                                                      evaluate=True, history=history)
+        test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.vocab_size, 
+                                                      evaluate=True, history=history)
         return train_loader, eval_loader, test_loader
 
-    def get_train_eval_loader(self, model_name):
-        return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab_size, evaluate=True)
+    def get_train_eval_loader(self, model_name, history=False):
+        return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab_size, 
+                                               evaluate=True, history=history)
 
 
     def get_extra_data(self, model_name):
@@ -50,7 +53,8 @@ class MedicalRecommendationDataset(object):
             return ehr_adj, ddi_adj
 
 class MedicalRecommendationDataloader(object):
-    def __init__(self, data, model_name, vocab_size, shuffle=False, permute=False, batch_size=1, evaluate=False):
+    def __init__(self, data, model_name, vocab_size, shuffle=False, 
+                 permute=False, batch_size=1, evaluate=False, history=False):
         self.data = data
         self.shuffle = shuffle
         self.permute = permute
@@ -60,6 +64,7 @@ class MedicalRecommendationDataloader(object):
         self.proc_vocab_size = vocab_size[1]
         self.med_vocab_size = vocab_size[2]
         self.evaluate = evaluate
+        self.history = history
         if evaluate:
             self.shuffle = False
             self.permute = False
@@ -67,9 +72,21 @@ class MedicalRecommendationDataloader(object):
         if model_name == "Leap":
             self.END_TOKEN = self.med_vocab_size + 1
         elif model_name in ["MLP", "Transformer"]:
-            self.CLS_TOKEN = self.diag_vocab_size + self.proc_vocab_size
-            self.DIAG_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 1
-            self.PROC_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 2
+            if history:
+                self.CLS_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size
+                self.DIAG_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size + 1
+                self.PROC_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size + 2
+                self.MED_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size + 3
+                self.ADM_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size + 4
+                self.CUR_TOKEN = self.diag_vocab_size + self.proc_vocab_size + self.med_vocab_size + 5
+            else:
+                self.CLS_TOKEN = self.diag_vocab_size + self.proc_vocab_size
+                self.DIAG_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 1
+                self.PROC_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 2
+        elif model_name in ["DualMLP", "DualTransformer"]:
+            if history:
+                self.ADM_TOKEN = self.diag_vocab_size + self.proc_vocab_size
+                self.CUR_TOKEN = self.diag_vocab_size + self.proc_vocab_size + 1
 
     def __len__(self):
         if self.evaluate:
@@ -116,11 +133,23 @@ class MedicalRecommendationDataloader(object):
                     if self.evaluate:
                         yield patient[idx-1][2], y_target
                 elif self.model_name in ["MLP", "Transformer"]:
-                    # Single input with <cls> <diag> <proc>
+                    # Single input with <cls> <diag> <proc> (<adm> if self.history)
+                    union_inputs = [self.CLS_TOKEN]
+
+                    if self.history:
+                        patient_history = patient[:idx]
+                        for history_adm in patient_history:
+                            adm_diags = history_adm[0]
+                            adm_procs = [p + self.diag_vocab_size for p in history_adm[1]]
+                            adm_meds = [m + self.diag_vocab_size + self.proc_vocab_size for m in history_adm[2]]
+                            union_inputs += [self.ADM_TOKEN, self.DIAG_TOKEN] + adm_diags + [self.PROC_TOKEN] + adm_procs + [self.MED_TOKEN] + adm_meds
+
                     diags = admission[0]
                     procs = [p + self.diag_vocab_size for p in admission[1]]
                     meds = admission[2]
-                    union_inputs = [self.CLS_TOKEN, self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
+                    if self.history:
+                        union_inputs += [self.CUR_TOKEN]
+                    union_inputs += [self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
                     bce_loss_target = np.zeros((1, self.med_vocab_size))
                     bce_loss_target[:, meds] = 1
                     margin_loss_target = np.full((1, self.med_vocab_size), -1)
@@ -135,6 +164,21 @@ class MedicalRecommendationDataloader(object):
                     diags = admission[0]
                     procs = [p + self.diag_vocab_size for p in admission[1]]
                     meds = admission[2]
+
+                    if self.history:
+                        # do not use history medication
+                        patient_history = patient[:idx]
+                        history_diags = []
+                        history_procs = []
+                        for history_adm in patient_history:
+                            adm_diags = history_adm[0]
+                            adm_procs = [p + self.diag_vocab_size for p in history_adm[1]]
+                            history_diags += [self.ADM_TOKEN] + adm_diags
+                            history_procs += [self.ADM_TOKEN] + adm_procs
+
+                        diags = history_diags + [self.CUR_TOKEN] + diags
+                        procs = history_procs + [self.CUR_TOKEN] + procs
+
                     bce_loss_target = np.zeros((1, self.med_vocab_size))
                     bce_loss_target[:, meds] = 1
                     margin_loss_target = np.full((1, self.med_vocab_size), -1)

@@ -419,7 +419,7 @@ MLP
 '''
 class MLP(nn.Module):
 
-    def __init__(self, vocab_size, emb_dim=64, seq_len=32, hidden_size=1024, num_layers=3, dropout=0.5, 
+    def __init__(self, vocab_size, emb_dim=64, seq_len=32, hidden_size=1024, num_layers=3, dropout=0.5, history=False, 
                  device=torch.device('cpu:0')):
         super().__init__()
         self.device = device
@@ -427,11 +427,18 @@ class MLP(nn.Module):
         self.emb_dim = emb_dim
         self.seq_len = seq_len
         self.output_size = vocab_size[2]
-        self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1] + 3
+        self.history = history
+        if history:
+            self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1] + self.vocab_size[2] + 6
+        else:
+            self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1] + 3
 
-        # add <cls> <diag> <proc> <pad>
+        # add <cls> <diag> <proc> <pad> (<adm> <cur> <med> if self.history)
         self.dropout = nn.Dropout(p=dropout)
-        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 4, emb_dim) 
+        if history:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + vocab_size[2] + 7, emb_dim) 
+        else:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 4, emb_dim) 
         self.linear = nn.Sequential(
                         nn.Linear(emb_dim * seq_len, hidden_size),
                         nn.ReLU()
@@ -463,7 +470,7 @@ class MLP(nn.Module):
 
 class DualMLP(nn.Module):
 
-    def __init__(self, vocab_size, emb_dim=64, seq_len=16, hidden_size=512, num_layers=3, dropout=0.5, 
+    def __init__(self, vocab_size, emb_dim=64, seq_len=16, hidden_size=512, num_layers=3, dropout=0.5, history=False, 
                  device=torch.device('cpu:0')):
         super().__init__()
         self.device = device
@@ -471,11 +478,18 @@ class DualMLP(nn.Module):
         self.emb_dim = emb_dim
         self.seq_len = seq_len
         self.output_size = vocab_size[2]
-        self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1]
+        self.history = history
+        if history:
+            self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1] + 2
+        else:
+            self.PAD_TOKEN = self.vocab_size[0] + self.vocab_size[1]
 
         # add <pad>
         self.dropout = nn.Dropout(p=dropout)
-        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 1, emb_dim) 
+        if history:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 3, emb_dim) 
+        else:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 1, emb_dim) 
         self.linear_diag = nn.Sequential(
                                nn.Linear(emb_dim * seq_len, hidden_size),
                                nn.ReLU()
@@ -674,15 +688,20 @@ class TransformerEncoderLayer(nn.Module):
 class Transformer(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=256, head_size=32, num_heads=8, filter_size=1024, num_layers=3, 
-                 dropout=0.1, device=torch.device('cpu:0')):
+                 dropout=0.1, history=False, device=torch.device('cpu:0')):
         super().__init__()
         self.device = device
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.output_size = vocab_size[2]
+        self.history = history
 
-        # add <cls> <diag> <proc>
-        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 3, hidden_size) 
+        # add <cls> <diag> <proc> (<adm> <cur> <med> if self.history)
+        if history:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + vocab_size[2] + 6, hidden_size) 
+        else:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 3, hidden_size) 
+
         self.layers = nn.ModuleList([
             TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
             for i in range(num_layers)])
@@ -709,14 +728,17 @@ class Transformer(nn.Module):
 class DualTransformer(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128, head_size=32, num_heads=8, filter_size=512, num_layers=3, 
-                 dropout=0.1, device=torch.device('cpu:0')):
+                 dropout=0.1, history=False, device=torch.device('cpu:0')):
         super().__init__()
         self.device = device
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.output_size = vocab_size[2]
 
-        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1], hidden_size) 
+        if history:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 2, hidden_size) 
+        else:
+            self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1], hidden_size) 
         self.layers_diag = nn.ModuleList([
             TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
             for i in range(num_layers)])

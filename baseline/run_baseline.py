@@ -37,7 +37,7 @@ def parse_args():
                         help="eval mode on test set")
     parser.add_argument('--eval_on_train', action='store_true',
                         help="eval on train set")
-    # save and load path
+    # save and load
     parser.add_argument('--load_path', type=str, default="",
                         help='load checkpoint')
     parser.add_argument("--save_path", type=str, default="/home/xyz/xyz/experiments/medical",
@@ -46,6 +46,8 @@ def parse_args():
                         help="dir path of processed data")
     parser.add_argument("--data_prefix", type=str, default="multi_visit",
                         help="prefix of processed data")
+    parser.add_argument('--history', action='store_true',
+                        help="load data of admission history")
     # model setting
     parser.add_argument('--model_name', type=str, default="GAMENet", 
                         choices=BASELINE_MODELS,
@@ -333,9 +335,10 @@ def main(args):
     dataset = MedicalRecommendationDataset(args.data_path, args.data_prefix)
     train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name, 
                                                                     shuffle=args.shuffle, 
-                                                                    permute=args.permute)
+                                                                    permute=args.permute,
+                                                                    history=args.history)
     if args.eval_on_train:
-        train_eval_loader = dataset.get_train_eval_loader(args.model_name)
+        train_eval_loader = dataset.get_train_eval_loader(args.model_name, history=args.history)
 
     if args.model_name == "GAMENet":
         ehr_adj, ddi_adj = dataset.get_extra_data(args.model_name)
@@ -360,6 +363,7 @@ def main(args):
                     hidden_size=args.hidden_size,
                     num_layers=args.num_layers,
                     dropout=args.dropout,
+                    history=args.history,
                     device=device)
     elif args.model_name == "DualMLP":
         model = DualMLP(dataset.vocab_size,
@@ -368,6 +372,7 @@ def main(args):
                         hidden_size=args.hidden_size,
                         num_layers=args.num_layers,
                         dropout=args.dropout,
+                        history=args.history,
                         device=device)
     elif args.model_name == "Transformer":
         model = Transformer(dataset.vocab_size,
@@ -377,6 +382,7 @@ def main(args):
                             filter_size=args.filter_size,
                             num_layers=args.num_layers,
                             dropout=args.dropout,
+                            history=args.history,
                             device=device)
     elif args.model_name == "DualTransformer":
         model = DualTransformer(dataset.vocab_size,
@@ -386,6 +392,7 @@ def main(args):
                                 filter_size=args.filter_size,
                                 num_layers=args.num_layers,
                                 dropout=args.dropout,
+                                history=args.history,
                                 device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
