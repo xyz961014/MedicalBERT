@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from collections import defaultdict
 from tqdm import tqdm
 
-from models import GAMENet, Leap, MLP, DualMLP, Transformer
+from models import GAMENet, Leap, MLP, DualMLP, Transformer, DualTransformer
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import MedicalRecommendationDataset
@@ -21,7 +21,7 @@ from data.build_vocab_and_records import Vocab
 
 import ipdb
 
-BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", "Transformer"]
+BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", "Transformer", "DualTransformer"]
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -128,7 +128,7 @@ def main(args):
             if args.model_name == "GAMENet":
                 seq_inputs, y_target = data
                 target_output1 = model(seq_inputs)
-                target_output1 = F.sigmoid(target_output1).detach().cpu().numpy()[0]
+                target_output1 = torch.sigmoid(target_output1).detach().cpu().numpy()[0]
                 y_pred_prob = target_output1
                 y_pred_tmp = target_output1.copy()
                 y_pred_tmp[y_pred_tmp>=0.5] = 1
@@ -153,10 +153,10 @@ def main(args):
                 y_pred_tmp[pred_list] = 1
                 y_pred = y_pred_tmp
                 y_pred_prob = y_pred_tmp
-            elif args.model_name in ["MLP", "DualMLP", "Transformer"]:
+            elif args.model_name in ["MLP", "DualMLP", "Transformer", "DualTransformer"]:
                 union_inputs, y_target = data
                 target_output = model(union_inputs)
-                target_output = F.sigmoid(target_output).detach().cpu().numpy()[0]
+                target_output = torch.sigmoid(target_output).detach().cpu().numpy()[0]
                 y_pred_prob = target_output
                 y_pred_tmp = target_output.copy()
                 y_pred_tmp[y_pred_tmp>=0.5] = 1
@@ -240,10 +240,10 @@ def main(args):
                 target_output1, batch_neg_loss = model(seq_inputs)
                 loss1 = F.binary_cross_entropy_with_logits(target_output1, 
                                                            torch.FloatTensor(loss1_target).to(device))
-                loss3 = F.multilabel_margin_loss(F.sigmoid(target_output1), 
+                loss3 = F.multilabel_margin_loss(torch.sigmoid(target_output1), 
                                                  torch.LongTensor(loss3_target).to(device))
                 if args.ddi:
-                    target_output1 = F.sigmoid(target_output1).detach().cpu().numpy()[0]
+                    target_output1 = torch.sigmoid(target_output1).detach().cpu().numpy()[0]
                     target_output1[target_output1 >= 0.5] = 1
                     target_output1[target_output1 < 0.5] = 0
                     y_label = np.where(target_output1 == 1)[0]
@@ -267,12 +267,12 @@ def main(args):
                 output_logits = model(admission)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
-            elif args.model_name in ["MLP", "DualMLP", "Transformer"]:
+            elif args.model_name in ["MLP", "DualMLP", "Transformer", "DualTransformer"]:
                 inputs, bce_loss_target, margin_loss_target = data
                 output_target = model(inputs)
                 bce_loss = F.binary_cross_entropy_with_logits(output_target, 
                                                               torch.FloatTensor(bce_loss_target).to(device))
-                margin_loss = F.multilabel_margin_loss(F.sigmoid(output_target), 
+                margin_loss = F.multilabel_margin_loss(torch.sigmoid(output_target), 
                                                        torch.LongTensor(margin_loss_target).to(device))
                 loss = args.alpha_bce * bce_loss + args.alpha_margin * margin_loss
 
@@ -378,6 +378,15 @@ def main(args):
                             num_layers=args.num_layers,
                             dropout=args.dropout,
                             device=device)
+    elif args.model_name == "DualTransformer":
+        model = DualTransformer(dataset.vocab_size,
+                                hidden_size=args.hidden_size,
+                                head_size=args.head_size,
+                                num_heads=args.num_heads,
+                                filter_size=args.filter_size,
+                                num_layers=args.num_layers,
+                                dropout=args.dropout,
+                                device=device)
     elif args.model_name == "Nearest":
         non_trivial = False
 

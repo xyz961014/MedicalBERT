@@ -9,7 +9,7 @@ from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
 
-warnings.filterwarnings('ignore')
+#warnings.filterwarnings('ignore')
 
 class MedicalRecommendationDataset(object):
     def __init__(self, data_path, data_prefix, train_set_ratio=2/3):
@@ -81,9 +81,8 @@ class MedicalRecommendationDataloader(object):
         data_to_iter = self.data
         if self.shuffle:
             random.shuffle(data_to_iter)
-        if self.evaluate:
-            # TODO: this is a temp solution, data preprocessing should be rewritten
-            data_to_iter = [data for data in data_to_iter if len(data) > 1]
+        #if self.evaluate:
+        #    data_to_iter = [data for data in data_to_iter if len(data) > 1]
         for patient in data_to_iter:
             for idx, admission in enumerate(patient):
 
@@ -131,7 +130,7 @@ class MedicalRecommendationDataloader(object):
                         yield union_inputs, y_target
                     else:
                         yield union_inputs, bce_loss_target, margin_loss_target
-                elif self.model_name in ["DualMLP"]:
+                elif self.model_name in ["DualMLP", "DualTransformer"]:
                     # dual input
                     diags = admission[0]
                     procs = [p + self.diag_vocab_size for p in admission[1]]

@@ -129,7 +129,7 @@ class GAMENet(nn.Module):
         output = self.output(torch.cat([query, fact1, fact2], dim=-1)) # (1, dim)
 
         if self.training:
-            neg_pred_prob = F.sigmoid(output)
+            neg_pred_prob = torch.sigmoid(output)
             neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
             batch_neg = neg_pred_prob.mul(self.tensor_ddi_adj).mean()
 
@@ -670,10 +670,11 @@ class TransformerEncoderLayer(nn.Module):
         x = self.feed_forward(x)
         return x
 
+
 class Transformer(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=256, head_size=32, num_heads=8, filter_size=1024, num_layers=6, 
-                 dropout=0.5, device=torch.device('cpu:0')):
+    def __init__(self, vocab_size, hidden_size=256, head_size=32, num_heads=8, filter_size=1024, num_layers=3, 
+                 dropout=0.1, device=torch.device('cpu:0')):
         super().__init__()
         self.device = device
         self.vocab_size = vocab_size
@@ -703,6 +704,50 @@ class Transformer(nn.Module):
         output = self.output(cls_output)
 
         return output.unsqueeze(dim=0)
+
+
+class DualTransformer(nn.Module):
+
+    def __init__(self, vocab_size, hidden_size=128, head_size=32, num_heads=8, filter_size=512, num_layers=3, 
+                 dropout=0.1, device=torch.device('cpu:0')):
+        super().__init__()
+        self.device = device
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.output_size = vocab_size[2]
+
+        self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1], hidden_size) 
+        self.layers_diag = nn.ModuleList([
+            TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
+            for i in range(num_layers)])
+        self.layers_proc = nn.ModuleList([
+            TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
+            for i in range(num_layers)])
+
+        self.output = nn.Linear(hidden_size * 2, self.output_size)
+
+    def convert_to_embedding(self, inputs):
+        embedding = self.embedding(torch.LongTensor(inputs).to(self.device))
+        embedding = F.dropout(embedding, p=0.1)
+        return embedding
+    
+    def forward(self, inputs):
+        diags, procs = inputs
+        diag_x = self.convert_to_embedding(diags).unsqueeze(0)
+        proc_x = self.convert_to_embedding(procs).unsqueeze(0)
+
+        for layer in self.layers_diag:
+            diag_x = layer(diag_x)
+        for layer in self.layers_proc:
+            proc_x = layer(proc_x)
+
+        diag_mean_output = diag_x.mean(dim=1)
+        proc_mean_output = proc_x.mean(dim=1)
+        mean_output = torch.cat((diag_mean_output, proc_mean_output), dim=1)
+        output = self.output(mean_output)
+
+        return output
+
 
 
 
