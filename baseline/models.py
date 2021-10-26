@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -533,6 +534,40 @@ class DualMLP(nn.Module):
         return output.unsqueeze(dim=0)
 
 
+# Original THUMT version
+class PositionalEmbedding(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, inputs):
+        if inputs.dim() != 3:
+            raise ValueError("The rank of input must be 3.")
+
+        length = inputs.shape[1]
+        channels = inputs.shape[2]
+        half_dim = channels // 2
+
+        positions = torch.arange(length, dtype=inputs.dtype,
+                                 device=inputs.device)
+        dimensions = torch.arange(half_dim, dtype=inputs.dtype,
+                                  device=inputs.device)
+
+        scale = math.log(10000.0) / float(half_dim - 1)
+        dimensions.mul_(-scale).exp_()
+
+        scaled_time = positions.unsqueeze(1) * dimensions.unsqueeze(0)
+        signal = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)],
+                           dim=1)
+
+        if channels % 2 == 1:
+            pad = torch.zeros([signal.shape[0], 1], dtype=inputs.dtype,
+                              device=inputs.device)
+            signal = torch.cat([signal, pad], axis=1)
+
+        return inputs + torch.reshape(signal, [1, -1, channels]).to(inputs)
+
+
 class MultiHeadAttention(nn.Module):
 
     def __init__(self, hidden_size, head_size, num_heads, dropout=0.0):
@@ -702,6 +737,7 @@ class Transformer(nn.Module):
         else:
             self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 3, hidden_size) 
 
+        self.encoding = PositionalEmbedding()
         self.layers = nn.ModuleList([
             TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
             for i in range(num_layers)])
@@ -715,6 +751,7 @@ class Transformer(nn.Module):
     
     def forward(self, inputs):
         x = self.convert_to_embedding(inputs).unsqueeze(0)
+        x = self.encoding(x)
 
         for layer in self.layers:
             x = layer(x)
@@ -739,6 +776,8 @@ class DualTransformer(nn.Module):
             self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1] + 2, hidden_size) 
         else:
             self.embedding = nn.Embedding(vocab_size[0] + vocab_size[1], hidden_size) 
+
+        self.encoding = PositionalEmbedding()
         self.layers_diag = nn.ModuleList([
             TransformerEncoderLayer(hidden_size, head_size, num_heads, filter_size, dropout)
             for i in range(num_layers)])
@@ -757,6 +796,8 @@ class DualTransformer(nn.Module):
         diags, procs = inputs
         diag_x = self.convert_to_embedding(diags).unsqueeze(0)
         proc_x = self.convert_to_embedding(procs).unsqueeze(0)
+        diag_x = self.encoding(diag_x)
+        proc_x = self.encoding(proc_x)
 
         for layer in self.layers_diag:
             diag_x = layer(diag_x)

@@ -417,8 +417,6 @@ def main(args):
         best_ckp = "final.model"
         if args.model_name == "GAMENet":
             T = args.temperature_initial
-        #elif args.model_name == "Leap":
-        #    END_TOKEN = vocab_size[2] + 1
 
         print("=" * 25 + "    Training {}    ".format(args.model_name) + "=" * 25)
 
