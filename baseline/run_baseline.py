@@ -432,9 +432,10 @@ def main(args):
             if args.eval_on_train:
                 print("-" * 25 + "    Epoch %d Evaluating on Training Set    " % epoch + "-" * 25)
                 evaluate(train_eval_loader)
-            print("-" * 25 + "    Epoch {} Evaluating {}    ".format(epoch, args.model_name) + "-" * 25)
+            print("-" * 25 + "    Epoch {} Evaluating {}    ".format(epoch, args.model_name) + 
+                  time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) + "-" * 25)
             ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(eval_loader)
-            print("-" * (70 + len(args.model_name)))
+            print("-" * (80 + len(args.model_name)))
 
             history['jaccard'].append(jaccard)
             history['ddi_rate'].append(ddi_rate)
@@ -471,7 +472,8 @@ def main(args):
     # Evaluation
 
     if args.eval:
-        print("=" * 25 + "    Testing {}    ".format(args.model_name) + "=" * 25)
+        print("=" * 25 + "    Testing {}    ".format(args.model_name) + 
+              time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 25)
         if non_trivial:
             model.load_state_dict(torch.load(open(os.path.join(save_path, best_ckp), "rb")))
         evaluate(test_loader)

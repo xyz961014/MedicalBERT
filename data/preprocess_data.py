@@ -11,6 +11,10 @@ def parse_args():
                         help="directory containing mimic data and other data")
     parser.add_argument("--multi_visit", action="store_true",
                         help="only use multi visit data")
+    parser.add_argument("--pretrain", action="store_true",
+                        help="preprocess pretrain data")
+    parser.add_argument("--labevents", action="store_true",
+                        help="preprocess pretrain data via LABEVENTS table")
     parser.add_argument("--most_diags", type=int, default=2000,
                         help="filter most common diagnoses")
     parser.add_argument("--save", type=str, default="data_final",
@@ -32,6 +36,10 @@ def main(args):
     med_file = os.path.join(args.data_path, 'PRESCRIPTIONS.csv')
     diag_file = os.path.join(args.data_path, 'DIAGNOSES_ICD.csv')
     proc_file = os.path.join(args.data_path, 'PROCEDURES_ICD.csv')
+
+    # files for pretrain
+    lab_file = os.path.join(args.data_path, 'LABEVENTS.csv')
+
 
     # drug code mapping files
     ndc2atc_file = os.path.join(args.data_path, 'ndc2atc_level4.csv')
@@ -88,6 +96,22 @@ def main(args):
         proc_pd.reset_index(drop=True, inplace=True)
 
         return proc_pd
+
+    def get_lab():
+        lab_pd = pd.read_csv(lab_file)
+        lab_pd.drop(columns=['ROW_ID', "VALUE"], inplace=True)
+        lab_pd_no_flag = lab_pd.drop(columns=["FLAG"])
+        lab_pd_no_flag.dropna(inplace=True)
+        lab_pd = pd.merge(lab_pd, lab_pd_no_flag, on=["SUBJECT_ID", "HADM_ID", "ITEMID", "CHARTTIME", "VALUENUM", "VALUEUOM"], how="inner")
+        lab_pd.fillna("normal", inplace=True)
+        lab_pd['HADM_ID'] = lab_pd['HADM_ID'].astype('int64')
+        lab_pd['CHARTTIME'] = pd.to_datetime(lab_pd['CHARTTIME'], format='%Y-%m-%d %H:%M:%S')    
+        lab_pd.drop_duplicates(inplace=True)
+        lab_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
+        lab_pd = lab_pd.reset_index(drop=True)
+
+        return lab_pd
+
 
     def filter_most_diag(diag_pd, most_value=2000):
         diag_count = diag_pd.groupby(by=['ICD9_CODE']).size().reset_index().rename(columns={0:'count'}).sort_values(by=['count'],ascending=False).reset_index(drop=True)
@@ -230,29 +254,45 @@ def main(args):
         print('#max of procedures: {}'.format(max_proc))
         print('#max of visit: {}'.format(max_visit))
     
-    med_pd = get_med()
-    simple_statistics(med_pd, typ="med", description="Get all medications")
-    med_pd = filter_first24hour_med(med_pd)
-    simple_statistics(med_pd, typ="med", description="Filter first 24h medications")
-    med_pd = ndc2atc4(med_pd)
-    simple_statistics(med_pd, typ="med", description="Translate NDC to ATC")
+    if args.pretrain:
+        med_pd = get_med()
+        med_pd.drop(columns=["ICUSTAY_ID"], inplace=True)
+        med_pd.rename(columns={"STARTDATE": "DATETIME"}, inplace=True)
+        simple_statistics(med_pd, typ="med", description="Get all medications")
+        diag_pd = get_diag()
+        simple_statistics(diag_pd, typ="diag", description="Get all diagnoses")
+        proc_pd = get_proc()
+        simple_statistics(proc_pd, typ="proc", description="Get all procedures")
+        lab_pd = get_lab()
+        lab_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+        data = pd.concat([med_pd, diag_pd, proc_pd, lab_pd])
+        ipdb.set_trace()
+        data.sort_values(by=["SUBJECT_ID", "HADM_ID", "DATETIME"], inplace=True)
+        pass
+    else:
+        med_pd = get_med()
+        simple_statistics(med_pd, typ="med", description="Get all medications")
+        med_pd = filter_first24hour_med(med_pd)
+        simple_statistics(med_pd, typ="med", description="Filter first 24h medications")
+        med_pd = ndc2atc4(med_pd)
+        simple_statistics(med_pd, typ="med", description="Translate NDC to ATC")
 
-    diag_pd = get_diag()
-    simple_statistics(diag_pd, typ="diag", description="Get all diagnoses")
-    diag_pd = filter_most_diag(diag_pd, most_value=args.most_diags)
-    simple_statistics(diag_pd, typ="diag", description="Filter most {} diagnoses".format(args.most_diags))
+        diag_pd = get_diag()
+        simple_statistics(diag_pd, typ="diag", description="Get all diagnoses")
+        diag_pd = filter_most_diag(diag_pd, most_value=args.most_diags)
+        simple_statistics(diag_pd, typ="diag", description="Filter most {} diagnoses".format(args.most_diags))
 
-    proc_pd = get_proc()
-    simple_statistics(proc_pd, typ="proc", description="Get all procedures")
+        proc_pd = get_proc()
+        simple_statistics(proc_pd, typ="proc", description="Get all procedures")
 
-    data = combine_data(med_pd, diag_pd, proc_pd)
-    statistics(data)
-    if args.multi_visit:
-        multi_visit_data = process_multi_visit(data)
-        statistics(multi_visit_data, description="Filter multi visit data")
-        multi_visit_data.to_pickle("{}_data.pkl".format(args.save))
-        return
-    data.to_pickle("{}_data.pkl".format(args.save))
+        data = combine_data(med_pd, diag_pd, proc_pd)
+        statistics(data)
+        if args.multi_visit:
+            multi_visit_data = process_multi_visit(data)
+            statistics(multi_visit_data, description="Filter multi visit data")
+            multi_visit_data.to_pickle("{}_data.pkl".format(args.save))
+            return
+        data.to_pickle("{}_data.pkl".format(args.save))
 
 
 
