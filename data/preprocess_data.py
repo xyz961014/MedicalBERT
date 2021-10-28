@@ -9,6 +9,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default="/home/xyz/Documents/Datasets/mimiciii-1.4",
                         help="directory containing mimic data and other data")
+    parser.add_argument("--run_local", action="store_true",
+                        help="only load part of the data to test the code on local machine")
     parser.add_argument("--multi_visit", action="store_true",
                         help="only use multi visit data")
     parser.add_argument("--pretrain", action="store_true",
@@ -39,6 +41,9 @@ def main(args):
 
     # files for pretrain
     lab_file = os.path.join(args.data_path, 'LABEVENTS.csv')
+    chart_file = os.path.join(args.data_path, 'CHARTEVENTS.csv')
+    item_file = os.path.join(args.data_path, 'D_ITEMS.csv')
+    labitem_file = os.path.join(args.data_path, 'D_LABITEMS.csv')
 
 
     # drug code mapping files
@@ -97,9 +102,25 @@ def main(args):
 
         return proc_pd
 
+    def get_item():
+        item_pd = pd.read_csv(item_file)
+        labitem_pd = pd.read_csv(labitem_file)
+        item_pd.drop(columns=['ROW_ID', "ABBREVIATION", "CATEGORY", "DBSOURCE", "LINKSTO", "UNITNAME", "PARAM_TYPE", "CONCEPTID"], inplace=True)
+        labitem_pd.drop(columns=['ROW_ID', "CATEGORY", "LOINC_CODE", "FLUID"], inplace=True)
+        labitem_pd.drop_duplicates(inplace=True)
+        item_pd.drop_duplicates(inplace=True)
+        item_pd = pd.concat([item_pd, labitem_pd])
+        item_pd.reset_index(drop=True, inplace=True)
+
+        return item_pd
+
     def get_lab():
-        lab_pd = pd.read_csv(lab_file)
+        lab_pd = pd.read_csv(lab_file, nrows=5e6 if args.run_local else None,
+                             low_memory=False)
         lab_pd.drop(columns=['ROW_ID', "VALUE"], inplace=True)
+        lab_pd["VALUEUOM"].fillna("", inplace=True)
+        lab_pd["VALUEUOM"] = lab_pd["VALUEUOM"].map(lambda x: x.strip().upper())
+        lab_pd.drop_duplicates(inplace=True)
         lab_pd_no_flag = lab_pd.drop(columns=["FLAG"])
         lab_pd_no_flag.dropna(inplace=True)
         lab_pd = pd.merge(lab_pd, lab_pd_no_flag, on=["SUBJECT_ID", "HADM_ID", "ITEMID", "CHARTTIME", "VALUENUM", "VALUEUOM"], how="inner")
@@ -112,6 +133,29 @@ def main(args):
 
         return lab_pd
 
+    def get_chart():
+        chart_pd = pd.read_csv(chart_file, nrows=5e6 if args.run_local else None, 
+                               low_memory=False)
+        chart_pd.drop(columns=["ROW_ID", "ICUSTAY_ID", "STORETIME", "CGID", "VALUE", "RESULTSTATUS"], inplace=True)
+        chart_pd["VALUEUOM"].fillna("", inplace=True)
+        chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
+        chart_pd.drop_duplicates(inplace=True)
+
+        # remove records with warning and error
+        chart_pd.drop(index=chart_pd[chart_pd['WARNING'] == 1].index, inplace=True)
+        chart_pd.drop(index=chart_pd[chart_pd['ERROR'] == 1].index, inplace=True)
+        chart_pd.drop(columns=["WARNING", "ERROR"], inplace=True)
+        chart_pd.drop_duplicates(inplace=True)
+
+        chart_pd.drop(index=chart_pd[chart_pd['STOPPED'] == "D/C'd'"].index, inplace=True)
+        chart_pd.drop(columns=["STOPPED"], inplace=True)
+        chart_pd.dropna(inplace=True)
+        chart_pd.drop_duplicates(inplace=True)
+
+        chart_pd['CHARTTIME'] = pd.to_datetime(chart_pd['CHARTTIME'], format='%Y-%m-%d %H:%M:%S')    
+        chart_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
+        chart_pd = chart_pd.reset_index(drop=True)
+        return chart_pd
 
     def filter_most_diag(diag_pd, most_value=2000):
         diag_count = diag_pd.groupby(by=['ICD9_CODE']).size().reset_index().rename(columns={0:'count'}).sort_values(by=['count'],ascending=False).reset_index(drop=True)
@@ -255,19 +299,39 @@ def main(args):
         print('#max of visit: {}'.format(max_visit))
     
     if args.pretrain:
+
         med_pd = get_med()
         med_pd.drop(columns=["ICUSTAY_ID"], inplace=True)
         med_pd.rename(columns={"STARTDATE": "DATETIME"}, inplace=True)
         simple_statistics(med_pd, typ="med", description="Get all medications")
+
         diag_pd = get_diag()
         simple_statistics(diag_pd, typ="diag", description="Get all diagnoses")
+
         proc_pd = get_proc()
         simple_statistics(proc_pd, typ="proc", description="Get all procedures")
+
+        item_pd = get_item()
+
         lab_pd = get_lab()
         lab_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
-        data = pd.concat([med_pd, diag_pd, proc_pd, lab_pd])
-        ipdb.set_trace()
+
+        chart_pd = get_chart()
+        chart_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+
+        data = pd.concat([med_pd, diag_pd, proc_pd, lab_pd, chart_pd])
         data.sort_values(by=["SUBJECT_ID", "HADM_ID", "DATETIME"], inplace=True)
+
+        # build buckets
+        item_ids = list(set(data["ITEMID"].dropna()))
+        for item_id in item_ids:
+            item_df = data[data["ITEMID"] == item_id]
+            unit_set = set(item_df["VALUEUOM"])
+            if "" in unit_set:
+                unit_set.remove("")
+            if len(unit_set) > 1:
+                print(item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
+        ipdb.set_trace()
         pass
     else:
         med_pd = get_med()
