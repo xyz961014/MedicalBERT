@@ -3,6 +3,7 @@ import os
 import ipdb
 import argparse
 import pandas as pd
+from tqdm import tqdm
 
 
 def parse_args():
@@ -30,7 +31,40 @@ def count_subjects(tb):
 def count_admissions(tb):
     return len(set(tb["HADM_ID"]))
 
+def read_huge_csv(csv_file, chunksize=5e6, **kwargs):
+    reader = pd.read_csv(csv_file, chunksize=chunksize, **kwargs)
+    chunks = []
+    # estimate size
+    temp_chunk = pd.read_csv(csv_file, nrows=chunksize)
+    temp_chunk_size = len(temp_chunk.to_csv(index=False))
+    if "nrows" in kwargs.keys() and kwargs["nrows"] is not None:
+        total = int(kwargs["nrows"] / chunksize)
+    else:
+        total = int(os.path.getsize(csv_file) / temp_chunk_size)
+    with tqdm(total=total, desc="Reading {}".format(csv_file.split("/")[-1])) as pbar:
+        for chunk in reader:
+            chunks.append(chunk)
+            pbar.update(1)
+    return pd.concat(chunks, ignore_index=True)
 
+def regularize_unit(row):
+
+    regularize_table = {
+            "CMH20": "CMH2O",
+            ".": "",
+            "MG/24HOURS": "MG/24HR",
+            "SECONDS": "SEC"
+                       }
+    conversation_table = {
+            "": ""
+                         }
+
+    row["VALUEUOM"] = row["VALUEUOM"].strip().upper()
+    if row["VALUEUOM"] in regularize_table:
+        row["VALUEUOM"] = regularize_table[row["VALUEUOM"]]
+
+    return row
+    
 
 def main(args):
 
@@ -115,10 +149,11 @@ def main(args):
         return item_pd
 
     def get_lab():
-        lab_pd = pd.read_csv(lab_file, nrows=5e6 if args.run_local else None,
-                             low_memory=False)
+        lab_pd = read_huge_csv(lab_file, nrows=5e6 if args.run_local else None,
+                               low_memory=False)
         lab_pd.drop(columns=['ROW_ID', "VALUE"], inplace=True)
         lab_pd["VALUEUOM"].fillna("", inplace=True)
+        #lab_pd[["VALUENUM", "VALUEUOM"]] = lab_pd[["VALUENUM", "VALUEUOM"]].apply(regularize_unit, axis=1)
         lab_pd["VALUEUOM"] = lab_pd["VALUEUOM"].map(lambda x: x.strip().upper())
         lab_pd.drop_duplicates(inplace=True)
         lab_pd_no_flag = lab_pd.drop(columns=["FLAG"])
@@ -134,8 +169,8 @@ def main(args):
         return lab_pd
 
     def get_chart():
-        chart_pd = pd.read_csv(chart_file, nrows=5e6 if args.run_local else None, 
-                               low_memory=False)
+        chart_pd = read_huge_csv(chart_file, nrows=5e6 if args.run_local else None, 
+                                 low_memory=False)
         chart_pd.drop(columns=["ROW_ID", "ICUSTAY_ID", "STORETIME", "CGID", "VALUE", "RESULTSTATUS"], inplace=True)
         chart_pd["VALUEUOM"].fillna("", inplace=True)
         chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
@@ -313,6 +348,8 @@ def main(args):
 
         item_pd = get_item()
 
+        dfs = [med_pd, diag_pd, proc_pd]
+
         lab_pd = get_lab()
         lab_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
 
@@ -331,6 +368,9 @@ def main(args):
                 unit_set.remove("")
             if len(unit_set) > 1:
                 print(item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
+                for unit in unit_set:
+                    unit_count = len(item_df[item_df["VALUEUOM"] == unit])
+                    print("#count {}: {}".format(unit, unit_count))
         ipdb.set_trace()
         pass
     else:
