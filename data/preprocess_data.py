@@ -4,6 +4,7 @@ import ipdb
 import argparse
 import pandas as pd
 from tqdm import tqdm
+from functools import partial
 
 
 def parse_args():
@@ -47,21 +48,38 @@ def read_huge_csv(csv_file, chunksize=5e6, **kwargs):
             pbar.update(1)
     return pd.concat(chunks, ignore_index=True)
 
-def regularize_unit(row):
-
+def regularize_unit(row, pbar=None):
     regularize_table = {
             "CMH20": "CMH2O",
             ".": "",
             "MG/24HOURS": "MG/24HR",
             "SECONDS": "SEC"
                        }
-    conversation_table = {
-            "": ""
-                         }
+    conversion_table = {
+            50889: {"MG/DL": ["MG/L", 10.0]},
+            50916: {"NG/ML": ["UG/DL", 0.1]},
+            50926: {"MIU/L": ["MIU/ML", 0.001]},
+            50958: {"MIU/L": ["MIU/ML", 0.001]},
+            50974: {"UG/L": ["NG/ML", 1.0]},
+            50989: {"NG/DL": ["PG/ML", 10.0]},
+            51514: {"EU/DL": ["MG/DL", 0.0016605402]}
+
+                       }
 
     row["VALUEUOM"] = row["VALUEUOM"].strip().upper()
-    if row["VALUEUOM"] in regularize_table:
+    try:
         row["VALUEUOM"] = regularize_table[row["VALUEUOM"]]
+    except KeyError:
+        pass
+
+    try:
+        row["VALUEUOM"] = conversion_table[int(row["ITEMID"])][row["VALUEUOM"]][0]
+        row["VALUENUM"] *= conversion_table[int(row["ITEMID"])][row["VALUEUOM"]][1]
+    except KeyError:
+        pass
+
+    if pbar is not None:
+        pbar.update(1)
 
     return row
     
@@ -153,8 +171,10 @@ def main(args):
                                low_memory=False)
         lab_pd.drop(columns=['ROW_ID', "VALUE"], inplace=True)
         lab_pd["VALUEUOM"].fillna("", inplace=True)
-        #lab_pd[["VALUENUM", "VALUEUOM"]] = lab_pd[["VALUENUM", "VALUEUOM"]].apply(regularize_unit, axis=1)
-        lab_pd["VALUEUOM"] = lab_pd["VALUEUOM"].map(lambda x: x.strip().upper())
+        with tqdm(total=len(lab_pd), desc="regularizing unit") as pbar:
+            regularize_func = partial(regularize_unit, pbar=pbar)
+            lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
+        #lab_pd["VALUEUOM"] = lab_pd["VALUEUOM"].map(lambda x: x.strip().upper())
         lab_pd.drop_duplicates(inplace=True)
         lab_pd_no_flag = lab_pd.drop(columns=["FLAG"])
         lab_pd_no_flag.dropna(inplace=True)
@@ -163,7 +183,7 @@ def main(args):
         lab_pd['HADM_ID'] = lab_pd['HADM_ID'].astype('int64')
         lab_pd['CHARTTIME'] = pd.to_datetime(lab_pd['CHARTTIME'], format='%Y-%m-%d %H:%M:%S')    
         lab_pd.drop_duplicates(inplace=True)
-        lab_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
+        #lab_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
         lab_pd = lab_pd.reset_index(drop=True)
 
         return lab_pd
@@ -173,7 +193,10 @@ def main(args):
                                  low_memory=False)
         chart_pd.drop(columns=["ROW_ID", "ICUSTAY_ID", "STORETIME", "CGID", "VALUE", "RESULTSTATUS"], inplace=True)
         chart_pd["VALUEUOM"].fillna("", inplace=True)
-        chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
+        with tqdm(total=len(chart_pd), desc="regularizing unit") as pbar:
+            regularize_func = partial(regularize_unit, pbar=pbar)
+            chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
+        #chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
         chart_pd.drop_duplicates(inplace=True)
 
         # remove records with warning and error
@@ -188,7 +211,7 @@ def main(args):
         chart_pd.drop_duplicates(inplace=True)
 
         chart_pd['CHARTTIME'] = pd.to_datetime(chart_pd['CHARTTIME'], format='%Y-%m-%d %H:%M:%S')    
-        chart_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
+        #chart_pd.sort_values(by=['SUBJECT_ID','HADM_ID'], inplace=True)
         chart_pd = chart_pd.reset_index(drop=True)
         return chart_pd
 
@@ -367,7 +390,7 @@ def main(args):
             if "" in unit_set:
                 unit_set.remove("")
             if len(unit_set) > 1:
-                print(item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
+                print(item_id, item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
                 for unit in unit_set:
                     unit_count = len(item_df[item_df["VALUEUOM"] == unit])
                     print("#count {}: {}".format(unit, unit_count))
