@@ -63,7 +63,6 @@ def regularize_unit(row, pbar=None):
             50974: {"UG/L": ["NG/ML", 1.0]},
             50989: {"NG/DL": ["PG/ML", 10.0]},
             51514: {"EU/DL": ["MG/DL", 0.0016605402]}
-
                        }
 
     row["VALUEUOM"] = row["VALUEUOM"].strip().upper()
@@ -171,9 +170,15 @@ def main(args):
                                low_memory=False)
         lab_pd.drop(columns=['ROW_ID', "VALUE"], inplace=True)
         lab_pd["VALUEUOM"].fillna("", inplace=True)
-        with tqdm(total=len(lab_pd), desc="regularizing unit") as pbar:
-            regularize_func = partial(regularize_unit, pbar=pbar)
-            lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
+
+        chunksize = int(1e5)
+        values = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]]
+        value_chunks = [values[i: i+chunksize] for i in range(0, len(values), chunksize)]
+        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks)):
+            lab_pd.loc[i: i+chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
+        #with tqdm(total=len(values), desc="regularizing unit") as pbar:
+        #    regularize_func = partial(regularize_unit, pbar=pbar)
+        #    lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
         #lab_pd["VALUEUOM"] = lab_pd["VALUEUOM"].map(lambda x: x.strip().upper())
         lab_pd.drop_duplicates(inplace=True)
         lab_pd_no_flag = lab_pd.drop(columns=["FLAG"])
@@ -193,9 +198,15 @@ def main(args):
                                  low_memory=False)
         chart_pd.drop(columns=["ROW_ID", "ICUSTAY_ID", "STORETIME", "CGID", "VALUE", "RESULTSTATUS"], inplace=True)
         chart_pd["VALUEUOM"].fillna("", inplace=True)
-        with tqdm(total=len(chart_pd), desc="regularizing unit") as pbar:
-            regularize_func = partial(regularize_unit, pbar=pbar)
-            chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
+
+        chunksize = int(1e5)
+        values = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]]
+        value_chunks = [values[i: i+chunksize] for i in range(0, len(values), chunksize)]
+        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks)):
+            chart_pd.loc[i: i+chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
+        #with tqdm(total=len(chart_pd), desc="regularizing unit") as pbar:
+        #    regularize_func = partial(regularize_unit, pbar=pbar)
+        #    chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
         #chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
         chart_pd.drop_duplicates(inplace=True)
 
