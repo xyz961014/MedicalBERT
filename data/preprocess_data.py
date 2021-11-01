@@ -174,8 +174,8 @@ def main(args):
         chunksize = int(1e5)
         values = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]]
         value_chunks = [values[i: i+chunksize] for i in range(0, len(values), chunksize)]
-        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks)):
-            lab_pd.loc[i: i+chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
+        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks), desc="regularizing unit"):
+            lab_pd.loc[i*chunksize: (i+1)*chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
         #with tqdm(total=len(values), desc="regularizing unit") as pbar:
         #    regularize_func = partial(regularize_unit, pbar=pbar)
         #    lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = lab_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
@@ -202,7 +202,7 @@ def main(args):
         chunksize = int(1e5)
         values = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]]
         value_chunks = [values[i: i+chunksize] for i in range(0, len(values), chunksize)]
-        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks)):
+        for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks), desc="regularizing unit"):
             chart_pd.loc[i: i+chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
         #with tqdm(total=len(chart_pd), desc="regularizing unit") as pbar:
         #    regularize_func = partial(regularize_unit, pbar=pbar)
