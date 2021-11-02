@@ -11,18 +11,25 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default="/home/xyz/Documents/Datasets/mimiciii-1.4",
                         help="directory containing mimic data and other data")
+    parser.add_argument("--output", type=str, default="processed_data",
+                        help="name of processed data")
     parser.add_argument("--run_local", action="store_true",
                         help="only load part of the data to test the code on local machine")
     parser.add_argument("--multi_visit", action="store_true",
                         help="only use multi visit data")
     parser.add_argument("--pretrain", action="store_true",
                         help="preprocess pretrain data")
-    parser.add_argument("--labevents", action="store_true",
-                        help="preprocess pretrain data via LABEVENTS table")
     parser.add_argument("--most_diags", type=int, default=2000,
                         help="filter most common diagnoses")
+    parser.add_argument("--item_threshold", type=int, default=1000,
+                        help="filter items less than 1000 occurence")
     parser.add_argument("--save", type=str, default="data_final",
                         help="filename of saving data")
+    # particular table
+    parser.add_argument("--labevents", action="store_true",
+                        help="preprocess pretrain data via LABEVENTS table")
+    parser.add_argument("--chartevents", action="store_true",
+                        help="preprocess pretrain data via CHARTEVENTS table")
 
     return parser.parse_args()
 
@@ -62,7 +69,13 @@ def regularize_unit(row, pbar=None):
             50958: {"MIU/L": ["MIU/ML", 0.001]},
             50974: {"UG/L": ["NG/ML", 1.0]},
             50989: {"NG/DL": ["PG/ML", 10.0]},
-            51514: {"EU/DL": ["MG/DL", 0.0016605402]}
+            51514: {"EU/DL": ["MG/DL", 0.0016605402]},
+            50964: {"MOSM/L": ["MOSM/KG", 1.0]},
+            50993: {"UU/ML": ["UIU/ML", 1.0]},
+            51127: {"#/CU MM": ["#/UL", 1.0]},
+            51128: {"#/CU MM": ["#/UL", 1.0]},
+            3451: {"KG": ["CM", 1.0]},
+            3723: {"CM": ["KG", 1.0]},
                        }
 
     row["VALUEUOM"] = row["VALUEUOM"].strip().upper()
@@ -203,11 +216,7 @@ def main(args):
         values = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]]
         value_chunks = [values[i: i+chunksize] for i in range(0, len(values), chunksize)]
         for i, value_chunk in tqdm(enumerate(value_chunks), total=len(value_chunks), desc="regularizing unit"):
-            chart_pd.loc[i: i+chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
-        #with tqdm(total=len(chart_pd), desc="regularizing unit") as pbar:
-        #    regularize_func = partial(regularize_unit, pbar=pbar)
-        #    chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]] = chart_pd[["ITEMID", "VALUENUM", "VALUEUOM"]].apply(regularize_func, axis=1)
-        #chart_pd["VALUEUOM"] = chart_pd["VALUEUOM"].map(lambda x: x.strip().upper())
+            chart_pd.loc[i*chunksize: (i+1)*chunksize, ["ITEMID", "VALUENUM", "VALUEUOM"]] = value_chunk.apply(regularize_unit, axis=1)
         chart_pd.drop_duplicates(inplace=True)
 
         # remove records with warning and error
@@ -392,19 +401,30 @@ def main(args):
 
         data = pd.concat([med_pd, diag_pd, proc_pd, lab_pd, chart_pd])
         data.sort_values(by=["SUBJECT_ID", "HADM_ID", "DATETIME"], inplace=True)
+        data.reset_index(inplace=True)
 
-        # build buckets
+        # handle units
+
+        # drop units not understood
+        data.drop(index=data.loc[(data["ITEMID"] == 113.0) & (data["VALUEUOM"] == "%")].index, inplace=True)
+        data.drop(index=data.loc[(data["ITEMID"] == 50980.0) & (data["VALUEUOM"] == "I.U.")].index, inplace=True)
         item_ids = list(set(data["ITEMID"].dropna()))
         for item_id in item_ids:
             item_df = data[data["ITEMID"] == item_id]
             unit_set = set(item_df["VALUEUOM"])
-            if "" in unit_set:
+            # replace empty unit with default unit 
+            if "" in unit_set and len(unit_set) == 2:
                 unit_set.remove("")
+                default_unit = unit_set.pop()
+                empty_index = data.loc[(data["ITEMID"] == item_id) & (data["VALUEUOM"] == "")].index
+                data.loc[empty_index, ["VALUEUOM"]] = default_unit
+            # print items with multiple unit
             if len(unit_set) > 1:
                 print(item_id, item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
                 for unit in unit_set:
                     unit_count = len(item_df[item_df["VALUEUOM"] == unit])
                     print("#count {}: {}".format(unit, unit_count))
+        data.to_csv("{}.csv".format(args.output))
         ipdb.set_trace()
         pass
     else:
