@@ -11,8 +11,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default="/home/xyz/Documents/Datasets/mimiciii-1.4",
                         help="directory containing mimic data and other data")
-    parser.add_argument("--output", type=str, default="processed_data",
-                        help="name of processed data")
     parser.add_argument("--run_local", action="store_true",
                         help="only load part of the data to test the code on local machine")
     parser.add_argument("--multi_visit", action="store_true",
@@ -286,9 +284,9 @@ def main(args):
         # flatten and merge
         diag_pd = diag_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index()  
         med_pd = med_pd.groupby(by=['SUBJECT_ID', 'HADM_ID'])['NDC'].unique().reset_index()
-        proc_pd = proc_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index().rename(columns={'ICD9_CODE':'PRO_CODE'})  
+        proc_pd = proc_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index().rename(columns={'ICD9_CODE':'PROC_CODE'})  
         med_pd['NDC'] = med_pd['NDC'].map(lambda x: list(x))
-        proc_pd['PRO_CODE'] = proc_pd['PRO_CODE'].map(lambda x: list(x))
+        proc_pd['PROC_CODE'] = proc_pd['PROC_CODE'].map(lambda x: list(x))
         data = diag_pd.merge(med_pd, on=['SUBJECT_ID', 'HADM_ID'], how='inner')
         data = data.merge(proc_pd, on=['SUBJECT_ID', 'HADM_ID'], how='inner')
         #     data['ICD9_CODE_Len'] = data['ICD9_CODE'].map(lambda x: len(x))
@@ -311,122 +309,142 @@ def main(args):
         if typ == "proc" or typ == "all":
             print('#procedure: {}'.format(len(set(data["ICD9_CODE"]))))
 
-    def statistics(data, description="stat data"):
+    def statistics(data, pretrain=False, description="stat data"):
         print("=" * 20 + "    " + description + "    " + "=" * 20)
         print('#patients: {}'.format(count_subjects(data)))
         print('#clinical events: {}'.format(len(data)))
+        print('#avg events per visit: {:5.3f}'.format(len(data) / count_subjects(data))
+
+        item_columns = {
+                "MED": "NDC",
+                "DIAG": "ICD9_CODE",
+                "PROC": "ICD9_CODE" if pretrain else "PROC_CODE",
+                "LAB": "ITEMID",
+                "CHART": "ITEMID",
+                       }
         
-        diag = data['ICD9_CODE'].values
-        med = data['NDC'].values
-        proc = data['PRO_CODE'].values
+        if pretrain:
+            types = list(set(data["TYPE"]))
+        else:
+            types = ["MED", "DIAG", "PROC"]
+
+        # stat unique items
+        for t in types:
+            column = item_columns[t]
+            if pretrain:
+                t_data = data[data["TYPE"] == t]
+                unique_items = set(t_data[column].values)
+            else:
+                unique_items = set([j for i in data[column].values for j in list(i)])
+            print('#{}: {}'.format(t, len(unique_items)))
         
-        unique_diag = set([j for i in diag for j in list(i)])
-        unique_med = set([j for i in med for j in list(i)])
-        unique_proc = set([j for i in proc for j in list(i)])
-        
-        print('#diagnosis: {}'.format(len(unique_diag)))
-        print('#medication: {}'.format(len(unique_med)))
-        print('#procedure: {}'.format(len(unique_proc)))
-        
-        avg_diag = 0
-        avg_med = 0
-        avg_proc = 0
-        max_diag = 0
-        max_med = 0
-        max_proc = 0
         count = 0
+        avgs = {t: 0 for t in types}
+        maxs = {t: 0 for t in types}
         max_visit = 0
         avg_visit = 0
-    
-        for subject_id in data['SUBJECT_ID'].unique():
+        for subject_id in tqdm(data['SUBJECT_ID'].unique(), desc=description):
             item_data = data[data['SUBJECT_ID'] == subject_id]
-            x = []
-            y = []
-            z = []
-            visit_count = 0
-            for index, row in item_data.iterrows():
-                visit_count += 1
-                count += 1
-                x.extend(list(row['ICD9_CODE']))
-                y.extend(list(row['NDC']))
-                z.extend(list(row['PRO_CODE']))
-            x = set(x)
-            y = set(y)
-            z = set(z)
-            avg_diag += len(x)
-            avg_med += len(y)
-            avg_proc += len(z)
-            avg_visit += visit_count
-            if len(x) > max_diag:
-                max_diag = len(x)
-            if len(y) > max_med:
-                max_med = len(y) 
-            if len(z) > max_proc:
-                max_proc = len(z)
-            if visit_count > max_visit:
-                max_visit = visit_count
+            if pretrain:
+                for t in types:
+                    len_t = len(item_data[item_data["TYPE"] == t])
+                    avgs[t] += len_t
+                    if len_t > maxs[t]:
+                        maxs[t] = len_t
+                visit_count = len(item_data["HADM_ID"].unique())
+                count += visit_count
+                avg_visit += visit_count
+                if visit_count > max_visit:
+                    max_visit = visit_count
+            else:
+                visit_count = 0
+                values = {t: [] for t in types}
+                for index, row in item_data.iterrows():
+                    visit_count += 1
+                    count += 1
+                    for t in types:
+                        values[t].extend(list(row[item_columns[t]]))
+                for t in types:
+                    set_t = values[t]
+                    avgs[t] += len(set_t)
+                    if len(set_t) > maxs[t]:
+                        maxs[t] = len(set_t)
+                avg_visit += visit_count
+                if visit_count > max_visit:
+                    max_visit = visit_count
         
-        print('#avg of diagnoses: {:5.3f}'.format(avg_diag/ count))
-        print('#avg of medicines: {:5.3f}'.format(avg_med/ count))
-        print('#avg of procedures: {:5.3f}'.format(avg_proc/ count))
-        print('#avg of vists: {:5.3f}'.format(avg_visit/ count_subjects(data)))
+        for t in types:
+            print('#avg of {} per visit: {:5.3f}'.format(t, avgs[t] / count))
+            print('#max of {} per visit: {}'.format(t, maxs[t]))
 
-        print('#max of diagnoses: {}'.format(max_diag))
-        print('#max of medicines: {}'.format(max_med))
-        print('#max of procedures: {}'.format(max_proc))
-        print('#max of visit: {}'.format(max_visit))
+        print('#avg of visits: {:5.3f}'.format(avg_visit / count_subjects(data)))
+        print('#max of visits: {}'.format(max_visit))
     
     if args.pretrain:
 
         med_pd = get_med()
         med_pd.drop(columns=["ICUSTAY_ID"], inplace=True)
         med_pd.rename(columns={"STARTDATE": "DATETIME"}, inplace=True)
+        med_pd.loc[:, "TYPE"] = "MED"
         simple_statistics(med_pd, typ="med", description="Get all medications")
 
         diag_pd = get_diag()
+        diag_pd.loc[:, "TYPE"] = "DIAG"
         simple_statistics(diag_pd, typ="diag", description="Get all diagnoses")
 
         proc_pd = get_proc()
+        proc_pd.loc[:, "TYPE"] = "PROC"
         simple_statistics(proc_pd, typ="proc", description="Get all procedures")
 
         item_pd = get_item()
 
         dfs = [med_pd, diag_pd, proc_pd]
 
-        lab_pd = get_lab()
-        lab_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+        if args.labevents:
+            lab_pd = get_lab()
+            lab_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+            lab_pd.loc[:, "TYPE"] = "LAB"
+            dfs.append(lab_pd)
 
-        chart_pd = get_chart()
-        chart_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+        if args.chartevents:
+            chart_pd = get_chart()
+            chart_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
+            chart_pd.loc[:, "TYPE"] = "CHART"
+            dfs.append(chart_pd)
 
-        data = pd.concat([med_pd, diag_pd, proc_pd, lab_pd, chart_pd])
+        data = pd.concat(dfs)
         data.sort_values(by=["SUBJECT_ID", "HADM_ID", "DATETIME"], inplace=True)
-        data.reset_index(inplace=True)
+        data.reset_index(drop=True, inplace=True)
 
         # handle units
 
         # drop units not understood
-        data.drop(index=data.loc[(data["ITEMID"] == 113.0) & (data["VALUEUOM"] == "%")].index, inplace=True)
-        data.drop(index=data.loc[(data["ITEMID"] == 50980.0) & (data["VALUEUOM"] == "I.U.")].index, inplace=True)
-        item_ids = list(set(data["ITEMID"].dropna()))
-        for item_id in item_ids:
-            item_df = data[data["ITEMID"] == item_id]
-            unit_set = set(item_df["VALUEUOM"])
-            # replace empty unit with default unit 
-            if "" in unit_set and len(unit_set) == 2:
-                unit_set.remove("")
-                default_unit = unit_set.pop()
-                empty_index = data.loc[(data["ITEMID"] == item_id) & (data["VALUEUOM"] == "")].index
-                data.loc[empty_index, ["VALUEUOM"]] = default_unit
-            # print items with multiple unit
-            if len(unit_set) > 1:
-                print(item_id, item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
-                for unit in unit_set:
-                    unit_count = len(item_df[item_df["VALUEUOM"] == unit])
-                    print("#count {}: {}".format(unit, unit_count))
-        data.to_csv("{}.csv".format(args.output))
-        ipdb.set_trace()
-        pass
+        if args.labevents or args.chartevents:
+            data.drop(index=data.loc[(data["ITEMID"] == 113.0) & (data["VALUEUOM"] == "%")].index, inplace=True)
+            data.drop(index=data.loc[(data["ITEMID"] == 50980.0) & (data["VALUEUOM"] == "I.U.")].index, inplace=True)
+            item_ids = list(set(data["ITEMID"].dropna()))
+            for item_id in tqdm(item_ids, desc="unify units and drop low-freq items"):
+                item_df = data[data["ITEMID"] == item_id]
+                unit_set = set(item_df["VALUEUOM"])
+                # replace empty unit with default unit 
+                if "" in unit_set and len(unit_set) == 2:
+                    unit_set.remove("")
+                    default_unit = unit_set.pop()
+                    empty_index = data.loc[(data["ITEMID"] == item_id) & (data["VALUEUOM"] == "")].index
+                    data.loc[empty_index, ["VALUEUOM"]] = default_unit
+                # print items with multiple unit
+                if len(unit_set) > 1:
+                    print(item_id, item_pd[item_pd["ITEMID"] == int(item_id)]["LABEL"].to_list()[0], unit_set)
+                    for unit in unit_set:
+                        unit_count = len(item_df[item_df["VALUEUOM"] == unit])
+                        print("#count {}: {}".format(unit, unit_count))
+                # drop items under item_threshold
+                if len(item_df) < args.item_threshold:
+                    data.drop(index=data.loc[data["ITEMID"] == item_id].index, inplace=True)
+
+        data.reset_index(drop=True, inplace=True)
+        statistics(data, pretrain=True)
+        data.to_pickle("{}_data.pkl".format(args.save))
     else:
         med_pd = get_med()
         simple_statistics(med_pd, typ="med", description="Get all medications")
