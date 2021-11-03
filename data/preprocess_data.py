@@ -313,7 +313,7 @@ def main(args):
         print("=" * 20 + "    " + description + "    " + "=" * 20)
         print('#patients: {}'.format(count_subjects(data)))
         print('#clinical events: {}'.format(len(data)))
-        print('#avg events per visit: {:5.3f}'.format(len(data) / count_subjects(data))
+        print('#avg events per visit: {:5.3f}'.format(len(data) / count_subjects(data)))
 
         item_columns = {
                 "MED": "NDC",
