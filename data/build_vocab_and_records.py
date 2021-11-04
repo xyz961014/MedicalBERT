@@ -49,6 +49,7 @@ class PretrainVocab(object):
         super().__init__()
 
         self.type_with_id = ["LAB", "CHART", "MED", "PROC", "DIAG"]
+        self.type_with_value = ["LAB", "CHART"]
 
         self.idx2word = {}
         self.word2idx = {}
@@ -61,6 +62,16 @@ class PretrainVocab(object):
 
     def __len__(self):
         return self.vocab_size
+
+    def __repr__(self):
+        repr_str = "Medical Vocabulary for Pretrain"
+        repr_str += "\nVocab size: {}".format(self.vocab_size)
+        types = list(set(self.idx2type.values()))
+        repr_str += "\nContaining types: " + ", ".join(types)
+        for t in types:
+            repr_str += "\n# {}: {}".format(t, len([v for v in self.idx2type.values() if v == t]))
+        return repr_str
+
 
     def normalize_word(self, word, typ):
         if typ in self.type_with_id:
@@ -144,7 +155,7 @@ def build_vocab(args):
 
 def build_pretrain_vocab(args, df):
 
-    special_tokens = ["<CLS>", "<NORMAL>", "<ABNORMAL>", "<DELTA>", "<DAY>"]
+    special_tokens = ["<CLS>", "<NORMAL>", "<ABNORMAL>", "<DELTA>", "<ADMISSION>", "<DAY>"]
     special_tokens += ["<SPECIAL{}>".format(i) for i in range(0, 64 - len(special_tokens))]
         
     print("build pretrain vocab ...")
@@ -205,7 +216,6 @@ def build_records(args, vocab):
     return records
 
 def build_token(args, vocab, df):
-    
 
     #def add_token(row):
     #    t = row["TYPE"]
@@ -224,9 +234,15 @@ def build_token(args, vocab, df):
         unique_tokens_in_type = list(t_df[id_columns[t]].dropna().unique())
         for idx in tqdm(unique_tokens_in_type, desc="build tokens for {}".format(t)):
             word = vocab.normalize_word(idx, typ=t)
-            df.loc[(df["TYPE"] == t) & (df[id_columns[t]] == idx), "TYPE_TOKEN"] = word
-            df.loc[(df["TYPE"] == t) & (df[id_columns[t]] == idx), "TYPE_TOKEN_ID"] = vocab.word2idx[word]
+            idx2build = t_df[t_df[id_columns[t]] == idx].index
+            df.loc[idx2build, "TYPE_TOKEN"] = word
+            df.loc[idx2build, "TYPE_TOKEN_ID"] = vocab.word2idx[word]
+
     df["TYPE_TOKEN_ID"] = df["TYPE_TOKEN_ID"].astype("int64")
+    df.to_pickle("{}_data_with_token.pkl".format(args.save))
+    return df 
+
+def count_words(args, vocab, df):
 
     for idx, row in tqdm(df.iterrows(), desc="count tokens", total=len(df)):
         word = row["TYPE_TOKEN"]
@@ -235,13 +251,65 @@ def build_token(args, vocab, df):
             vocab.count_word(row["BUCKET_VALUE"])
         if not pd.isna(row["FLAG"]):
             vocab.count_word("<{}>".format(row["FLAG"].upper()))
+    dill.dump(obj=vocab, file=open('{}_vocab_with_count.pkl'.format(args.save), 'wb'))
 
-    df.to_pickle("{}_data_with_token.pkl".format(args.save))
-    return df 
+    return vocab
+
 
 def build_pretrain_data(args, vocab, df):
+
+    token_file = open("{}_token_data.txt".format(args.save), "w")
+    id_file = open("{}_id_data.txt".format(args.save), "w")
+
+    def print_token(token):
+        token_file.write("{} ".format(token))
+        id_file.write("{} ".format(vocab.word2idx[token]))
+
+    def print_tokens(tokens):
+        for token in tokens:
+            print_token(token)
+
+    def print_df(dataframe):
+        for idx, row in dataframe.iterrows():
+            token_file.write("{} ".format(row["TYPE_TOKEN"]))
+            id_file.write("{} ".format(int(row["TYPE_TOKEN_ID"])))
+            if pd.notna(row["BUCKET_VALUE"]):
+                print_token(row["BUCKET_VALUE"])
+            if pd.notna(row["FLAG"]):
+                flag_token = "<{}>".format(row["FLAG"].upper())
+                print_token(flag_token)
+
+    subjects = list(df["SUBJECT_ID"].unique())
+    for subject_id in tqdm(subjects, desc="build data"):
+        subject_df = df[df["SUBJECT_ID"] == subject_id]
+        # add potential static data here 
+        admissions = list(subject_df["HADM_ID"].unique())
+        print_tokens(["<CLS>", "<ADMISSION>"])
+        for adm_id in admissions:
+            adm_df = subject_df[subject_df["HADM_ID"] == adm_id]
+            # and add potential static data here 
+            adm_df_wo_time = adm_df[pd.isna(adm_df["DATETIME"])]
+            adm_df_w_time = adm_df[pd.notna(adm_df["DATETIME"])]
+            # add tokens with no time
+            for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
+                t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
+                print_token("<{}>".format(t))
+                print_df(t_df)
+            # add tokens in order of time
+            for datetime in list(adm_df_w_time["DATETIME"].dropna().unique()):
+                datetime_df = adm_df_w_time[adm_df_w_time["DATETIME"] == datetime]
+                df_types = list(datetime_df["TYPE"].unique())
+                for df_type in df_types:
+                    datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
+                    if df_type in vocab.type_with_value:
+                        datetime_type_df.drop(index=datetime_type_df[pd.isna(datetime_type_df['BUCKET_VALUE'])].index, inplace=True)
+                    print_token("<{}>".format(df_type))
+                    print_df(datetime_type_df)
+
+
     ipdb.set_trace()
-    pass
+    token_file.close()
+    id_file.close()
 
 def build_buckets(args):
     df = pd.read_pickle(args.data_path)
@@ -272,23 +340,30 @@ def build_buckets(args):
 if __name__ == "__main__":
     args = parse_args()
     if args.pretrain:
+        # build buckets
         if os.path.exists("{}_data_with_bucket_value.pkl".format(args.save)):
             print("data with bucket value already exists, loading existing file")
             bucket_df = pd.read_pickle("{}_data_with_bucket_value.pkl".format(args.save))
         else:
             bucket_df = build_buckets(args)
-
+        # build vocab
         if os.path.exists("{}_vocab.pkl".format(args.save)):
             print("vocab already exists, loading existing file")
             vocab = dill.load(open("{}_vocab.pkl".format(args.save), "rb"))
         else:
             vocab = build_pretrain_vocab(args, bucket_df)
-
+        # build tokens
         if os.path.exists("{}_data_with_token.pkl".format(args.save)):
             print("data with token already exists, loading existing file")
             data_df = pd.read_pickle("{}_data_with_token.pkl".format(args.save))
         else:
             data_df = build_token(args, vocab, bucket_df)
+        # count tokens
+        #if os.path.exists("{}_vocab_with_count.pkl".format(args.save)):
+        #    print("vocab with count already exists, loading existing file")
+        #    vocab = dill.load(open("{}_vocab_with_count.pkl".format(args.save), "rb"))
+        #else:
+        #    vocab = count_words(args, vocab, data_df)
 
         build_pretrain_data(args, vocab, data_df)
     else:
