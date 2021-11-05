@@ -18,6 +18,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default="_data.pkl",
                         help="data path of pkl file")
+    parser.add_argument("--data_dir", type=str, default="/home/xyz/Documents/Datasets/mimiciii-1.4",
+                        help="data dir of MIMIC-III CSV file")
     parser.add_argument("--pretrain", action="store_true",
                         help="preprocess pretrain data")
     parser.add_argument("--buckets", type=int, default=10,
@@ -182,7 +184,7 @@ def build_pretrain_vocab(args, df):
         bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
         vocab.add_item_values(item_id, typ=typ, values=bucket_values)
     # get detail from original csv table
-    vocab.get_detail()
+    vocab.get_detail(args.data_dir)
 
     dill.dump(obj=vocab, file=open('{}_vocab.pkl'.format(args.save), 'wb'))
     print("build pretrain vocab complete!")
@@ -296,18 +298,26 @@ def build_pretrain_data(args, vocab, df):
                 print_token("<{}>".format(t))
                 print_df(t_df)
             # add tokens in order of time
+            last_date = None
             for datetime in list(adm_df_w_time["DATETIME"].dropna().unique()):
                 datetime_df = adm_df_w_time[adm_df_w_time["DATETIME"] == datetime]
                 df_types = list(datetime_df["TYPE"].unique())
+                current_date = datetime.astype("str").split("T")[0]
+                if not last_date == current_date:
+                    print_token("<DAY>")
+                    last_date = current_date
                 for df_type in df_types:
                     datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
                     if df_type in vocab.type_with_value:
-                        datetime_type_df.drop(index=datetime_type_df[pd.isna(datetime_type_df['BUCKET_VALUE'])].index, inplace=True)
+                        datetime_type_df = datetime_type_df[pd.notna(datetime_type_df["BUCKET_VALUE"])]
                     print_token("<{}>".format(df_type))
                     print_df(datetime_type_df)
 
+            token_file.write("\n")
+            id_file.write("\n")
+        token_file.write("\n")
+        id_file.write("\n")
 
-    ipdb.set_trace()
     token_file.close()
     id_file.close()
 
@@ -359,11 +369,11 @@ if __name__ == "__main__":
         else:
             data_df = build_token(args, vocab, bucket_df)
         # count tokens
-        #if os.path.exists("{}_vocab_with_count.pkl".format(args.save)):
-        #    print("vocab with count already exists, loading existing file")
-        #    vocab = dill.load(open("{}_vocab_with_count.pkl".format(args.save), "rb"))
-        #else:
-        #    vocab = count_words(args, vocab, data_df)
+        if os.path.exists("{}_vocab_with_count.pkl".format(args.save)):
+            print("vocab with count already exists, loading existing file")
+            vocab = dill.load(open("{}_vocab_with_count.pkl".format(args.save), "rb"))
+        else:
+            vocab = count_words(args, vocab, data_df)
 
         build_pretrain_data(args, vocab, data_df)
     else:
