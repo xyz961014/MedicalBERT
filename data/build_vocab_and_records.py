@@ -157,7 +157,7 @@ def build_vocab(args):
 
 def build_pretrain_vocab(args, df):
 
-    special_tokens = ["<CLS>", "<MASK>", "<NORMAL>", "<ABNORMAL>", "<DELTA>", "<ADMISSION>", "<DAY>"]
+    special_tokens = ["<PAD>", "<CLS>", "<MASK>", "<NORMAL>", "<ABNORMAL>", "<DELTA>", "<ADMISSION>", "<DAY>"]
     special_tokens += ["<SPECIAL{}>".format(i) for i in range(0, 64 - len(special_tokens))]
         
     print("build pretrain vocab ...")
