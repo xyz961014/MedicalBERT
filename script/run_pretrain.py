@@ -61,6 +61,10 @@ def parse_args():
     #                    default=80,
     #                    type=int,
     #                    help="The maximum total of masked tokens in input sequence")
+    parser.add_argument("--seq_level_task",
+                        default=False,
+                        action="store_true",
+                        help="sequence level task")
     parser.add_argument("--train_batch_size",
                         default=32,
                         type=int,
@@ -172,8 +176,8 @@ def main(args):
 
     assert torch.cuda.is_available()
 
-    time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-    args.output_dir = "{}_{}".format(args.output_dir, time_str)
+    #time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    #args.output_dir = "{}_{}".format(args.output_dir, time_str)
 
     # prepare summary writer for Tensorboard
     writer_path = "{}/../log".format(args.output_dir)
@@ -189,7 +193,7 @@ def main(args):
     config = MedicalBertConfig.from_json_file(args.config_file)
 
     # build model
-    model = MedicalBertForPreTraining(config)
+    model = MedicalBertForPreTraining(config, seq_level_task=args.seq_level_task)
 
     # load checkpoint if needed
     checkpoint = None
@@ -249,7 +253,7 @@ def main(args):
         model = torch.nn.DataParallel(model)
 
     # build training criterion
-    criterion = MedicalBertPretrainingCriterion(config.vocab_size)
+    criterion = MedicalBertPretrainingCriterion(config.vocab_size, seq_level_task=args.seq_level_task)
 
     if is_main_process():
         dllogger.log(step="PARAMETER", data={"SEED": args.seed})
@@ -345,6 +349,7 @@ def main(args):
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:
+                # possible final logging
 
                 # deal with logger
                 writer.close()

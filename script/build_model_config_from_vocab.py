@@ -4,8 +4,9 @@ import dill
 import sys
 
 sys.path.append("..")
+sys.path.append("../data")
 
-from data.build_vocab_and_records import PretrainVocab
+from data import PretrainVocab
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -33,6 +34,8 @@ def parse_args():
                         help="number of attention heads")
     parser.add_argument("--num_hidden_layers", type=int, default=12,
                         help="number of hidden layers")
+    parser.add_argument("--only_mlm", action="store_true",
+                        help="disable Pooler in Bert when only train with MLM")
 
     return parser.parse_args()
 
@@ -45,17 +48,18 @@ def main(args):
     type_vocab_size = len(set(vocab.idx2type.values()))
 
     config_json = {
-                      "attention_probs_dropout_prob": args.attention_probs_dropout_prob,
-                      "hidden_act": args.hidden_act,
-                      "hidden_dropout_prob": args.hidden_dropout_prob,
-                      "hidden_size": args.hidden_size,
-                      "initializer_range": args.initializer_range,
-                      "intermediate_size": args.intermediate_size,
-                      "max_position_embeddings": args.max_position_embeddings,
-                      "num_attention_heads": args.num_attention_heads,
-                      "num_hidden_layers": args.num_hidden_layers,
-                      "type_vocab_size": type_vocab_size,
-                      "vocab_size": vocab_size
+              "attention_probs_dropout_prob": args.attention_probs_dropout_prob,
+              "hidden_act": args.hidden_act,
+              "hidden_dropout_prob": args.hidden_dropout_prob,
+              "hidden_size": args.hidden_size,
+              "initializer_range": args.initializer_range,
+              "intermediate_size": args.intermediate_size,
+              "max_position_embeddings": args.max_position_embeddings,
+              "num_attention_heads": args.num_attention_heads,
+              "num_hidden_layers": args.num_hidden_layers,
+              "with_pooler": not args.only_mlm,
+              "type_vocab_size": type_vocab_size,
+              "vocab_size": vocab_size
                   }
 
     with open("{}.json".format(args.save), "w") as f:

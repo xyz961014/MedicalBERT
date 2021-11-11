@@ -92,7 +92,8 @@ class MedicalBertConfig(object):
                  max_position_embeddings=512,
                  type_vocab_size=2,
                  initializer_range=0.02,
-                 output_all_encoded_layers=False):
+                 output_all_encoded_layers=False,
+                 with_pooler=True):
         """Constructs MedicalBertConfig.
 
         Args:
@@ -136,6 +137,7 @@ class MedicalBertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
             self.output_all_encoded_layers = output_all_encoded_layers
+            self.with_pooler = with_pooler
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -419,14 +421,16 @@ class MedicalBertOnlyNSPHead(nn.Module):
 
 
 class MedicalBertPreTrainingHeads(nn.Module):
-    def __init__(self, config, bert_model_embedding_weights):
+    def __init__(self, config, bert_model_embedding_weights, seq_level_task=False):
         super().__init__()
         self.predictions = MedicalBertLMPredictionHead(config, bert_model_embedding_weights)
-        self.seq_relationship = nn.Linear(config.hidden_size, 2)
+        self.seq_level_task = seq_level_task
+        if seq_level_task:
+            self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
         prediction_scores = self.predictions(sequence_output)
-        seq_relationship_score = self.seq_relationship(pooled_output)
+        seq_relationship_score = self.seq_relationship(pooled_output) if self.seq_level_task else None
         return prediction_scores, seq_relationship_score
 
 
@@ -593,7 +597,10 @@ class MedicalBertModel(MedicalBertPreTrainedModel):
         super().__init__(config)
         self.embeddings = MedicalBertEmbeddings(config)
         self.encoder = MedicalBertEncoder(config)
-        self.pooler = MedicalBertPooler(config)
+        self.with_pooler = config.with_pooler
+        if self.with_pooler:
+            self.pooler = MedicalBertPooler(config)
+
         self.apply(self.init_bert_weights)
         self.output_all_encoded_layers = config.output_all_encoded_layers
 
@@ -616,7 +623,7 @@ class MedicalBertModel(MedicalBertPreTrainedModel):
         embedding_output = self.embeddings(input_ids, token_type_ids)
         encoded_layers = self.encoder(embedding_output, extended_attention_mask)
         sequence_output = encoded_layers[-1]
-        pooled_output = self.pooler(sequence_output)
+        pooled_output = self.pooler(sequence_output) if self.with_pooler else None
         if not self.output_all_encoded_layers:
             encoded_layers = encoded_layers[-1:]
         return encoded_layers, pooled_output
@@ -672,10 +679,11 @@ class MedicalBertForPreTraining(MedicalBertPreTrainedModel):
     masked_lm_logits_scores, seq_relationship_logits = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config):
+    def __init__(self, config, seq_level_task=False):
         super(MedicalBertForPreTraining, self).__init__(config)
         self.bert = MedicalBertModel(config)
-        self.cls = MedicalBertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
+        self.seq_level_task = seq_level_task
+        self.cls = MedicalBertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight, seq_level_task)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids, attention_mask):
@@ -748,14 +756,18 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
 
 class MedicalBertPretrainingCriterion(nn.Module):
 
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, seq_level_task=False):
         super().__init__()
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
         self.vocab_size = vocab_size
+        self.seq_level_task = seq_level_task
 
     def forward(self, prediction_scores, seq_relationship_score, masked_lm_labels, seq_level_labels):
         masked_lm_loss = self.loss_fn(prediction_scores.view(-1, self.vocab_size), masked_lm_labels.view(-1))
-        seq_level_loss = self.loss_fn(seq_relationship_score.view(-1, 2), seq_level_labels.view(-1))
+        if self.seq_level_task:
+            seq_level_loss = self.loss_fn(seq_relationship_score.view(-1, 2), seq_level_labels.view(-1))
+        else:
+            seq_level_loss = 0.
         total_loss = masked_lm_loss + seq_level_loss
         return total_loss
 
