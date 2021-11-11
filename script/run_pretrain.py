@@ -115,6 +115,12 @@ def parse_args():
                         help='device list')
     parser.add_argument('--distributed', action="store_true",
                         help='enable distributed multiple gpus')
+    parser.add_argument('--log_freq',
+                        type=int, default=1,
+                        help='frequency of logging loss.')
+    parser.add_argument('--display_freq',
+                        type=int, default=100,
+                        help='frequency of displaying logging.')
 
     return parser.parse_args()
 
@@ -136,7 +142,7 @@ def setup_training(args):
     if is_main_process():
         dllogger.init(backends=[dllogger.JSONStreamBackend(verbosity=dllogger.Verbosity.VERBOSE,
                                                            filename=os.path.join(args.output_dir, args.json_summary)),
-                                dllogger.StdOutBackend(verbosity=dllogger.Verbosity.VERBOSE, step_format=format_step)])
+                                dllogger.StdOutBackend(verbosity=dllogger.Verbosity.DEFAULT, step_format=format_step)])
     else:
         dllogger.init(backends=[])
 
@@ -165,6 +171,9 @@ def setup_training(args):
 def main(args):
 
     assert torch.cuda.is_available()
+
+    time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    args.output_dir = "{}_{}".format(args.output_dir, time_str)
 
     # prepare summary writer for Tensorboard
     writer_path = "{}/../log".format(args.output_dir)
@@ -271,25 +280,86 @@ def main(args):
     else:
         train_dataloader = restored_dataloader
 
-    train_iter = tqdm(train_dataloader, desc="Iteration") if is_main_process() else train_dataloader
     
     while True:
-        for step, batch in enumerate(train_iter):
 
+        train_iter = tqdm(train_dataloader, 
+                          desc="Epoch {}".format(epoch + 1)) if is_main_process() else train_dataloader
+        for step, batch in enumerate(train_iter):
+            
+            # get data and put data in device
             batch = [t.to(device) for t in batch]
             input_ids, segment_ids, input_mask, masked_lm_labels, seq_level_labels = batch
+            
+            # use model to predict
             pred_scores, seq_level_score = model(input_ids=input_ids,
                                                  token_type_ids=segment_ids,
                                                  attention_mask=input_mask)
+            # compute loss
             loss = criterion(pred_scores, seq_level_score, masked_lm_labels, seq_level_labels)
-            import ipdb
-            ipdb.set_trace()
-    pass
+
+            if args.gradient_accumulation_steps > 1:
+                loss = loss / args.gradient_accumulation_steps
+
+            loss.backward()
+
+            average_loss += loss.item()
+            training_steps += 1
+            
+            # optimize the model
+            if training_steps % args.gradient_accumulation_steps == 0:
+                lr_scheduler.step()
+                optimizer.step()
+                global_step += 1
+                model.zero_grad()
+            
+            # logging loss
+            if global_step > 0 and global_step % args.log_freq == 0:
+                if is_main_process():
+                    if global_step % args.display_freq == 0:
+                        verbosity = dllogger.Verbosity.DEFAULT
+                    else:
+                        verbosity = dllogger.Verbosity.VERBOSE
+                    dllogger.log(step=(epoch, global_step, ), 
+                                 data={"average_loss": average_loss / args.log_freq,
+                                       "step_loss": loss.item() * args.gradient_accumulation_steps,
+                                       "learning_rate": optimizer.param_groups[0]['lr']},
+                                 verbosity=verbosity)
+                average_loss = 0
+
+            # save model per args.num_steps_per_checkpoint
+            if global_step > 0 and global_step % args.num_steps_per_checkpoint == 0:
+                dllogger.log(step="PARAMETER", data={"checkpoint_step": global_step})
+                model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
+                torch.save({'model': model_to_save.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'epoch': epoch,
+                            'data_loader': None if global_step >= args.max_steps else train_dataloader}, 
+                            output_save_file)
+
+                most_recent_ckpts_paths.append(output_save_file)
+                if len(most_recent_ckpts_paths) > 5:
+                    ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
+                    os.remove(ckpt_to_be_removed)
+
+            # exit training when reach max_steps
+            if global_step >= args.max_steps:
+
+                # deal with logger
+                writer.close()
+                dllogger.flush()
+
+                return
+
+
+        epoch += 1
+
 
 
 def process_fn(rank, args):
     local_args = copy(args)
-    local_args.rank = rank
+    local_args.local_rank = rank
     main(local_args)
 
 
