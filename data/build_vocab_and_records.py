@@ -128,6 +128,14 @@ class PretrainVocab(object):
                 self.add_word(idx, typ=t)
                 self.idx2detail[self.word2idx[self.normalize_word(idx, t)]] = idx_df[text_col].values[0]
 
+    def tokenize(self, sentence):
+        words = sentence.strip().split()
+        tokens = []
+        for word in words:
+            tokens.append(self.word2idx[word])
+
+        return tokens
+
 
 def build_vocab(args):
     print("build vocab ...")
@@ -157,7 +165,8 @@ def build_vocab(args):
 
 def build_pretrain_vocab(args, df):
 
-    special_tokens = ["<PAD>", "<CLS>", "<MASK>", "<NORMAL>", "<ABNORMAL>", "<DELTA>", "<ADMISSION>", "<DAY>"]
+    special_tokens = ["<PAD>", "<CLS>", "<MASK>", "<ADMISSION>", "<DAY>"]
+    value_special_tokens = ["<NORMAL>", "<ABNORMAL>", "<DELTA>"]
     special_tokens += ["<SPECIAL{}>".format(i) for i in range(0, 64 - len(special_tokens))]
         
     print("build pretrain vocab ...")
@@ -168,6 +177,7 @@ def build_pretrain_vocab(args, df):
     
     # add special tokens
     vocab.add_words(special_tokens, typ="SPECIAL")
+    vocab.add_words(value_special_tokens, typ="VALUE")
     # add type tokens
     vocab.add_words(type_tokens, typ="TYPE")
     # add bucket value tokens
