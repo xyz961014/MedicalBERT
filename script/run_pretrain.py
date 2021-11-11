@@ -29,17 +29,18 @@ sys.path.append("..")
 from model import MedicalBertForPreTraining, MedicalBertConfig
 from model import MedicalBertPretrainingCriterion
 from module import PolyWarmUpScheduler
+from data import MedicalPretrainingDataset
 from utils import is_main_process, get_world_size, get_rank, format_step
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--input_dir",
+    parser.add_argument("--input_file",
                         default=None,
                         type=str,
                         required=True,
-                        help="The input data dir contain data for the task.")
+                        help="The input data file for the task.")
     parser.add_argument("--config_file",
                         default=None,
                         type=str,
@@ -253,9 +254,30 @@ def main(args):
     average_loss = 0.0  # averaged loss every args.log_freq steps
     epoch = 0
     training_steps = 0
+
+    # get data
+    restored_dataloader = None
+    if checkpoint is not None:
+        restored_dataloader = checkpoint.get("dataloader", None)
+
+    if restored_dataloader is None:
+        train_dataset = MedicalPretrainingDataset(args.input_file)
+        train_sampler = RandomSampler(train_dataset)
+        train_dataloader = DataLoader(train_dataset, 
+                                      sampler=train_sampler,
+                                      batch_size=args.train_batch_size * len(args.devices),
+                                      num_workers=4, 
+                                      worker_init_fn=worker_init,
+                                      pin_memory=True)
+    else:
+        train_dataloader = restored_dataloader
+
+    train_iter = tqdm(train_dataloader, desc="Iteration") if is_main_process() else train_dataloader
     
-    import ipdb
-    ipdb.set_trace()
+    while True:
+        for step, batch in train_iter:
+            import ipdb
+            ipdb.set_trace()
     pass
 
 

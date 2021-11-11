@@ -131,6 +131,7 @@ dmypy.json
 *.swp
 
 # data
+processed_data/
 *.pkl
 *_data.txt
 *.hdf5

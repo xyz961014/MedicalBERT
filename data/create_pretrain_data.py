@@ -80,18 +80,18 @@ def parse_args():
 class TrainingInstance(object):
   """A single training instance (sentence pair)."""
 
-  def __init__(self, tokens, segment_ids, masked_lm_positions, masked_lm_labels, seq_level_label=None):
+  def __init__(self, tokens, segment_ids, masked_lm_positions, masked_lm_labels, seq_level_labels=None):
     self.tokens = tokens
     self.segment_ids = segment_ids
     self.masked_lm_positions = masked_lm_positions
     self.masked_lm_labels = masked_lm_labels
-    self.seq_level_label = seq_level_label
+    self.seq_level_labels = seq_level_labels
 
   def __str__(self):
     s = ""
     s += "tokens: %s\n" % (" ".join([str(x) for x in self.tokens]))
     s += "segment_ids: %s\n" % (" ".join([str(x) for x in self.segment_ids]))
-    s += "seq_level_label: %s\n" % self.seq_level_label
+    s += "seq_level_labels: %s\n" % self.seq_level_labels
     s += "masked_lm_positions: %s\n" % (" ".join([str(x) for x in self.masked_lm_positions]))
     s += "masked_lm_labels: %s\n" % (" ".join([str(x) for x in self.masked_lm_labels]))
     s += "\n"
@@ -236,7 +236,7 @@ def write_instinces_to_file(args, vocab, instances):
     features["segment_ids"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
     features["masked_lm_positions"] =  np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
     features["masked_lm_ids"] = np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
-    features["seq_level_label"] = np.zeros(num_instances, dtype="int32")
+    features["seq_level_labels"] = np.zeros(num_instances, dtype="int32")
 
     for ind, instance in enumerate(tqdm(instances, desc="writing to file")):
         input_ids = instance.tokens
@@ -263,14 +263,14 @@ def write_instinces_to_file(args, vocab, instances):
             masked_lm_ids.append(0)
             masked_lm_weights.append(0.0)
 
-        seq_level_label = instance.seq_level_label or 0
+        seq_level_labels = instance.seq_level_labels or 0
 
         features["input_ids"][ind] = input_ids
         features["input_mask"][ind] = input_mask
         features["segment_ids"][ind] = segment_ids
         features["masked_lm_positions"][ind] = masked_lm_positions
         features["masked_lm_ids"][ind] = masked_lm_ids
-        features["seq_level_label"][ind] = seq_level_label
+        features["seq_level_labels"][ind] = seq_level_labels
 
         total_written += 1
 
@@ -289,7 +289,7 @@ def write_instinces_to_file(args, vocab, instances):
     f.create_dataset("segment_ids", data=features["segment_ids"], dtype='i1', compression='gzip')
     f.create_dataset("masked_lm_positions", data=features["masked_lm_positions"], dtype='i4', compression='gzip')
     f.create_dataset("masked_lm_ids", data=features["masked_lm_ids"], dtype='i4', compression='gzip')
-    f.create_dataset("seq_level_label", data=features["seq_level_label"], dtype='i1', compression='gzip')
+    f.create_dataset("seq_level_labels", data=features["seq_level_labels"], dtype='i1', compression='gzip')
     f.flush()
     f.close()
 
