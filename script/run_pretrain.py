@@ -267,7 +267,6 @@ def main(args):
                                       sampler=train_sampler,
                                       batch_size=args.train_batch_size * len(args.devices),
                                       num_workers=4, 
-                                      worker_init_fn=worker_init,
                                       pin_memory=True)
     else:
         train_dataloader = restored_dataloader
@@ -275,7 +274,14 @@ def main(args):
     train_iter = tqdm(train_dataloader, desc="Iteration") if is_main_process() else train_dataloader
     
     while True:
-        for step, batch in train_iter:
+        for step, batch in enumerate(train_iter):
+
+            batch = [t.to(device) for t in batch]
+            input_ids, segment_ids, input_mask, masked_lm_labels, seq_level_labels = batch
+            pred_scores, seq_level_score = model(input_ids=input_ids,
+                                                 token_type_ids=segment_ids,
+                                                 attention_mask=input_mask)
+            loss = criterion(pred_scores, seq_level_score, masked_lm_labels, seq_level_labels)
             import ipdb
             ipdb.set_trace()
     pass

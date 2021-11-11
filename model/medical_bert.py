@@ -745,6 +745,7 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
         pooled_output = self.dropout(pooled_output)
         return self.classifier(pooled_output)
 
+
 class MedicalBertPretrainingCriterion(nn.Module):
 
     def __init__(self, vocab_size):

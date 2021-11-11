@@ -263,7 +263,7 @@ def count_words(args, vocab, df):
             vocab.count_word(row["BUCKET_VALUE"])
         if not pd.isna(row["FLAG"]):
             vocab.count_word("<{}>".format(row["FLAG"].upper()))
-    dill.dump(obj=vocab, file=open('{}_vocab_with_count.pkl'.format(args.save), 'wb'))
+    dill.dump(obj=vocab, file=open('{}_vocab.pkl'.format(args.save), 'wb'))
 
     return vocab
 
