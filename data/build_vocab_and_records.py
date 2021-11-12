@@ -245,12 +245,13 @@ def build_token(args, vocab, df):
     
     for t in vocab.type_with_id:
         t_df = df[df["TYPE"] == t]
-        unique_tokens_in_type = list(t_df[id_columns[t]].dropna().unique())
-        for idx in tqdm(unique_tokens_in_type, desc="build tokens for {}".format(t)):
-            word = vocab.normalize_word(idx, typ=t)
-            idx2build = t_df[t_df[id_columns[t]] == idx].index
-            df.loc[idx2build, "TYPE_TOKEN"] = word
-            df.loc[idx2build, "TYPE_TOKEN_ID"] = vocab.word2idx[word]
+        if id_columns[t] in t_df.columns:
+            unique_tokens_in_type = list(t_df[id_columns[t]].dropna().unique())
+            for idx in tqdm(unique_tokens_in_type, desc="build tokens for {}".format(t)):
+                word = vocab.normalize_word(idx, typ=t)
+                idx2build = t_df[t_df[id_columns[t]] == idx].index
+                df.loc[idx2build, "TYPE_TOKEN"] = word
+                df.loc[idx2build, "TYPE_TOKEN_ID"] = vocab.word2idx[word]
 
     df["TYPE_TOKEN_ID"] = df["TYPE_TOKEN_ID"].astype("int64")
     df.to_pickle("{}_data_with_token.pkl".format(args.save))
