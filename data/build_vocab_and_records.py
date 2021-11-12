@@ -333,43 +333,44 @@ def build_pretrain_data(args, vocab, df):
 
 def build_buckets(args):
     df = pd.read_pickle(args.data_path)
-    item_ids = set(df["ITEMID"].dropna())
-    for item_id in tqdm(item_ids, desc="build buckets"):
-        item_df = df[df["ITEMID"] == item_id]
-        unit = item_df["VALUEUOM"].unique()[0]
-        item_df = item_df.sort_values(by=["VALUENUM"])
+    if "ITEMID" in df.columns:
+        item_ids = set(df["ITEMID"].dropna())
+        for item_id in tqdm(item_ids, desc="build buckets"):
+            item_df = df[df["ITEMID"] == item_id]
+            unit = item_df["VALUEUOM"].unique()[0]
+            item_df = item_df.sort_values(by=["VALUENUM"])
 
-        item_num = len(item_df)
-        min_value = min(item_df["VALUENUM"])
-        max_value = max(item_df["VALUENUM"])
-        bucket_len = item_num // args.buckets
-        boundary_index = [i for i in range(bucket_len, item_num - bucket_len + 1, bucket_len)]
-        boundary_values = [item_df.iloc[i]["VALUENUM"] for i in boundary_index]
-        # rm duplicate
-        boundary_values = sorted(list(set(boundary_values)))
-        # recompute boundary_index 
-        boundary_index = []
-        iv = 0
-        for i, value in enumerate(item_df["VALUENUM"].values):
-            if value > boundary_values[iv]:
-                boundary_index.append(i)
-                iv += 1
-                if iv >= len(boundary_values):
-                    break
-        boundary_index = [0] + boundary_index + [item_num-1]
-        boundary_values = ["min"] + boundary_values + ["max"]
-        # fix boundary_index to guarantee max to occur, note that min is bound to occur
-        # because out bucket contain the right boundary instead of the left
-        for i in range(-1, -len(boundary_index)+1, -1):
-            if boundary_index[i-1] == boundary_index[i]:
-                boundary_index[i-1] -= 1
+            item_num = len(item_df)
+            min_value = min(item_df["VALUENUM"])
+            max_value = max(item_df["VALUENUM"])
+            bucket_len = item_num // args.buckets
+            boundary_index = [i for i in range(bucket_len, item_num - bucket_len + 1, bucket_len)]
+            boundary_values = [item_df.iloc[i]["VALUENUM"] for i in boundary_index]
+            # rm duplicate
+            boundary_values = sorted(list(set(boundary_values)))
+            # recompute boundary_index 
+            boundary_index = []
+            iv = 0
+            for i, value in enumerate(item_df["VALUENUM"].values):
+                if value > boundary_values[iv]:
+                    boundary_index.append(i)
+                    iv += 1
+                    if iv >= len(boundary_values):
+                        break
+            boundary_index = [0] + boundary_index + [item_num-1]
+            boundary_values = ["min"] + boundary_values + ["max"]
+            # fix boundary_index to guarantee max to occur, note that min is bound to occur
+            # because out bucket contain the right boundary instead of the left
+            for i in range(-1, -len(boundary_index)+1, -1):
+                if boundary_index[i-1] == boundary_index[i]:
+                    boundary_index[i-1] -= 1
 
-        for i in range(len(boundary_index) - 1):
-            bucket_index = item_df[boundary_index[i]:boundary_index[i+1]].index
-            bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
-            df.loc[bucket_index, "BUCKET_VALUE"] = bucket_value
+            for i in range(len(boundary_index) - 1):
+                bucket_index = item_df[boundary_index[i]:boundary_index[i+1]].index
+                bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
+                df.loc[bucket_index, "BUCKET_VALUE"] = bucket_value
 
-    print("build buckets complete")
+        print("build buckets complete")
     df.to_pickle("{}_data_with_bucket_value.pkl".format(args.save))
     return df
 

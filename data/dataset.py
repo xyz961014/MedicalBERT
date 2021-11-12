@@ -27,7 +27,8 @@ class MedicalPretrainingDataset(Dataset):
 
         masked_lm_labels = torch.ones(input_ids.shape, dtype=torch.long) * -1
         # store number of masked tokens in index
-        padded_mask_indices = masked_lm_positions.eq(0).nonzero()
+        #padded_mask_indices = masked_lm_positions.eq(0).nonzero()
+        padded_mask_indices = torch.nonzero(masked_lm_positions.eq(0))
         if len(padded_mask_indices) > 0:
             index = padded_mask_indices[0].item()
         else:

@@ -334,19 +334,20 @@ def main(args):
 
             # save model per args.num_steps_per_checkpoint
             if global_step > 0 and global_step % args.num_steps_per_checkpoint == 0:
-                dllogger.log(step="PARAMETER", data={"checkpoint_step": global_step})
-                model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-                output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
-                torch.save({'model': model_to_save.state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'epoch': epoch,
-                            'data_loader': None if global_step >= args.max_steps else train_dataloader}, 
-                            output_save_file)
+                if is_main_process():
+                    dllogger.log(step="PARAMETER", data={"checkpoint_step": global_step})
+                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                    output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
+                    torch.save({'model': model_to_save.state_dict(),
+                                'optimizer': optimizer.state_dict(),
+                                'epoch': epoch,
+                                'data_loader': None if global_step >= args.max_steps else train_dataloader}, 
+                                output_save_file)
 
-                most_recent_ckpts_paths.append(output_save_file)
-                if len(most_recent_ckpts_paths) > 5:
-                    ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
-                    os.remove(ckpt_to_be_removed)
+                    most_recent_ckpts_paths.append(output_save_file)
+                    if len(most_recent_ckpts_paths) > 5:
+                        ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
+                        os.remove(ckpt_to_be_removed)
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:
