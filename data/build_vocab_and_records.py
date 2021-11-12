@@ -262,10 +262,12 @@ def count_words(args, vocab, df):
     for idx, row in tqdm(df.iterrows(), desc="count tokens", total=len(df)):
         word = row["TYPE_TOKEN"]
         vocab.count_word(word)
-        if not pd.isna(row["BUCKET_VALUE"]):
-            vocab.count_word(row["BUCKET_VALUE"])
-        if not pd.isna(row["FLAG"]):
-            vocab.count_word("<{}>".format(row["FLAG"].upper()))
+        if "BUCKET_VALUE" in row.keys():
+            if not pd.isna(row["BUCKET_VALUE"]):
+                vocab.count_word(row["BUCKET_VALUE"])
+        if "FLAG" in row.keys():
+            if not pd.isna(row["FLAG"]):
+                vocab.count_word("<{}>".format(row["FLAG"].upper()))
     dill.dump(obj=vocab, file=open('{}_vocab.pkl'.format(args.save), 'wb'))
 
     return vocab
@@ -400,11 +402,7 @@ if __name__ == "__main__":
         else:
             data_df = build_token(args, vocab, bucket_df)
         # count tokens
-        if os.path.exists("{}_vocab_with_count.pkl".format(args.save)):
-            print("vocab with count already exists, loading existing file")
-            vocab = dill.load(open("{}_vocab_with_count.pkl".format(args.save), "rb"))
-        else:
-            vocab = count_words(args, vocab, data_df)
+        vocab = count_words(args, vocab, data_df)
 
         build_pretrain_data(args, vocab, data_df)
     else:
