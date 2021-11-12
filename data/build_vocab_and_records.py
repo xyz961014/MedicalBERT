@@ -290,10 +290,12 @@ def build_pretrain_data(args, vocab, df):
         for idx, row in dataframe.iterrows():
             token_file.write("{} ".format(row["TYPE_TOKEN"]))
             id_file.write("{} ".format(int(row["TYPE_TOKEN_ID"])))
-            if pd.notna(row["BUCKET_VALUE"]):
-                print_token(row["BUCKET_VALUE"])
-            if pd.notna(row["FLAG"]):
-                flag_token = "<{}>".format(row["FLAG"].upper())
+            if "BUCKET_VALUE" in row.keys():
+                if pd.notna(row["BUCKET_VALUE"]):
+                    print_token(row["BUCKET_VALUE"])
+            if "FLAG" in row.keys():
+                if pd.notna(row["FLAG"]):
+                    flag_token = "<{}>".format(row["FLAG"].upper())
                 print_token(flag_token)
 
     subjects = list(df["SUBJECT_ID"].unique())
