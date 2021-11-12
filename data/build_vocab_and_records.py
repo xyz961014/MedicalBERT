@@ -181,7 +181,8 @@ def build_pretrain_vocab(args, df):
     # add type tokens
     vocab.add_words(type_tokens, typ="TYPE")
     # add bucket value tokens
-    vocab.add_words(list(df["BUCKET_VALUE"].dropna().unique()), typ="VALUE")
+    if "BUCKET_VALUE" in df.columns:
+        vocab.add_words(list(df["BUCKET_VALUE"].dropna().unique()), typ="VALUE")
     # add id tokens
     for t in types:
         t_df = df[df["TYPE"] == t]
