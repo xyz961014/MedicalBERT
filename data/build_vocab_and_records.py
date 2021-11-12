@@ -189,11 +189,12 @@ def build_pretrain_vocab(args, df):
         unique_tokens_in_type = list(t_df[id_columns[t]].dropna().unique())
         vocab.add_words(unique_tokens_in_type, typ=t)
     # add itemid2valueids
-    for item_id in list(df["ITEMID"].dropna().unique()):
-        item_df = df[df["ITEMID"] == item_id]
-        typ = list(item_df["TYPE"].unique())[0]
-        bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
-        vocab.add_item_values(item_id, typ=typ, values=bucket_values)
+    if "ITEMID" in df.columns:
+        for item_id in list(df["ITEMID"].dropna().unique()):
+            item_df = df[df["ITEMID"] == item_id]
+            typ = list(item_df["TYPE"].unique())[0]
+            bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
+            vocab.add_item_values(item_id, typ=typ, values=bucket_values)
     # get detail from original csv table
     vocab.get_detail(args.data_dir)
 
