@@ -1,10 +1,13 @@
 import argparse
 import json
 import dill
+import os
 import sys
+from pprint import pprint
 
-sys.path.append("..")
-sys.path.append("../data")
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
+sys.path.append(os.path.join(curr_path, "../data"))
 
 from data import PretrainVocab
 
@@ -64,6 +67,9 @@ def main(args):
 
     with open("{}.json".format(args.save), "w") as f:
         json.dump(config_json, f, indent=4)
+
+    print("Model config created with")
+    pprint(config_json)
 
 
 if __name__ == "__main__":

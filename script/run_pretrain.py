@@ -24,7 +24,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 import dllogger
 
-sys.path.append("..")
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
 
 from model import MedicalBertForPreTraining, MedicalBertConfig
 from model import MedicalBertPretrainingCriterion

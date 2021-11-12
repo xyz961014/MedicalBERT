@@ -16,7 +16,8 @@ from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import MedicalRecommendationDataset
 
-sys.path.append("..")
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
 from data.build_vocab_and_records import Vocab
 
 import ipdb

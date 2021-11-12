@@ -12,7 +12,8 @@ from copy import copy
 import random
 import collections
 
-sys.path.append("..")
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
 
 from data.build_vocab_and_records import PretrainVocab
 
