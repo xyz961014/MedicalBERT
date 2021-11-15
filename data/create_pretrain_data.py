@@ -256,7 +256,7 @@ def write_epochs_to_file(args, vocab, epochs):
         features["masked_lm_ids"] = np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
         features["seq_level_labels"] = np.zeros(num_instances, dtype="int32")
 
-        for ind, instance in enumerate(tqdm(instances, desc="writing to file")):
+        for ind, instance in enumerate(tqdm(instances, desc="writing to file {}/{}".format(epoch + 1, len(epochs)))):
             input_ids = instance.tokens
             input_mask = [1] * len(input_ids)
             segment_ids = instance.segment_ids
@@ -293,7 +293,7 @@ def write_epochs_to_file(args, vocab, epochs):
             total_written += 1
 
         filename = "{}_seq_len_{}_max_pred_{}_mlm_prob_{}_random_seed_{}_dupe_{}_{}.hdf5".format(
-                args.save, 
+                os.path.split(args.save)[-1], 
                 args.max_seq_length, 
                 args.max_predictions_per_seq, 
                 args.masked_lm_prob,
