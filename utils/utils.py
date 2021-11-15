@@ -42,7 +42,7 @@ def format_metric(metric, metadata, value):
         format_table = {
                 "average_loss": "{:5.5f}",
                 "step_loss": "{:5.5f}",
-                "learning_eate": "{:5.5f}"
+                "lr": "{:5.3e}"
                        }
         unit = ""
         format_str = format_table[metric] if metric in format_table.keys() else "{}"

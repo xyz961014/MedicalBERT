@@ -218,7 +218,10 @@ def main(args):
         model.load_state_dict(checkpoint['model'], strict=False)
         
         if is_main_process():
-            print("resume step from ", args.resume_step)
+            if not args.init_checkpoint:
+                print("resume step from ", args.resume_step)
+            else:
+                print("init training from ", args.init_checkpoint)
 
     model.to(device)
 
@@ -242,11 +245,8 @@ def main(args):
             #Override hyperparameters from previous checkpoint
             for key in keys:
                 checkpoint['optimizer']['state'][key]['step'] = global_step
-            for iter, item in enumerate(checkpoint['optimizer']['param_groups']):
-                checkpoint['optimizer']['param_groups'][iter]['step'] = global_step
-                checkpoint['optimizer']['param_groups'][iter]['t_total'] = args.max_steps
-                checkpoint['optimizer']['param_groups'][iter]['warmup'] = args.warmup_proportion
-                checkpoint['optimizer']['param_groups'][iter]['lr'] = args.learning_rate
+            for it, item in enumerate(checkpoint['optimizer']['param_groups']):
+                checkpoint['optimizer']['param_groups'][it]['lr'] = args.learning_rate
         optimizer.load_state_dict(checkpoint['optimizer'])  # , strict=False)
 
     # convert model for DDP training
@@ -301,6 +301,7 @@ def main(args):
         else:
             # first epoch of resume training 
             files = checkpoint["files"]
+            num_files = len(files)
             args.resume_from_checkpoint = False
             epoch = checkpoint.get("epoch", 0)
             restored_dataloader = checkpoint.get("dataloader", None)
@@ -366,7 +367,7 @@ def main(args):
                     dllogger.log(step=(epoch, global_step, ), 
                                  data={"average_loss": average_loss / args.log_freq,
                                        "step_loss": loss.item() * args.gradient_accumulation_steps,
-                                       "learning_rate": optimizer.param_groups[0]['lr']},
+                                       "lr": optimizer.param_groups[0]['lr']},
                                  verbosity=verbosity)
                 average_loss = 0
 
