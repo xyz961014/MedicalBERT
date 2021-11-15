@@ -102,7 +102,7 @@ class TrainingInstance(object):
     return self.__str__()
 
 
-def create_pretrain_instances(args, vocab, rng):
+def create_pretrain_epochs(args, vocab, rng):
 
     assert args.input_file or args.input_id_file
     input_file = args.input_id_file or args.input_file
@@ -126,16 +126,17 @@ def create_pretrain_instances(args, vocab, rng):
     all_subjects = [s for s in all_subjects if s]
     rng.shuffle(all_subjects)
 
-    pretrain_instances = []
+    pretrain_epochs = []
     for i in range(args.dupe_factor):
+        pretrain_epoch = []
         for idx in tqdm(range(len(all_subjects)), desc="duplication {}/{}".format(i + 1, args.dupe_factor)):
-            subject_pretrain_instances = convert_subject_pretrain_instances(args, all_subjects, idx, vocab, rng)
-            pretrain_instances.extend(subject_pretrain_instances)
+            subject_pretrain_epoch = convert_subject_pretrain_epoch(args, all_subjects, idx, vocab, rng)
+            pretrain_epoch.extend(subject_pretrain_epoch)
+        rng.shuffle(pretrain_epoch)
+        pretrain_epochs.append(pretrain_epoch)
+    return pretrain_epochs
 
-    rng.shuffle(pretrain_instances)
-    return pretrain_instances
-
-def convert_subject_pretrain_instances(args, all_subjects, subject_id, vocab, rng):
+def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
     
     subject_data = all_subjects[subject_id]
 
@@ -143,7 +144,7 @@ def convert_subject_pretrain_instances(args, all_subjects, subject_id, vocab, rn
     if rng.random() < args.short_seq_prob:
         target_seq_length = rng.randint(2, args.max_seq_length)
 
-    subject_pretrain_instances = []
+    subject_pretrain_epoch = []
     for admission in subject_data:
         # admission level pretrain data
         tokens = []
@@ -159,9 +160,9 @@ def convert_subject_pretrain_instances(args, all_subjects, subject_id, vocab, rn
         tokens, masked_lm_positions, masked_lm_labels = create_masked_lm_predictions(args, tokens, vocab, rng)
 
         instance = TrainingInstance(tokens, segment_ids, masked_lm_positions, masked_lm_labels)
-        subject_pretrain_instances.append(instance)
+        subject_pretrain_epoch.append(instance)
 
-    return subject_pretrain_instances
+    return subject_pretrain_epoch
 
 def truncate_tokens(args, tokens, segment_ids):
     
@@ -225,57 +226,9 @@ def create_masked_lm_predictions(args, tokens, vocab, rng):
 
     return (output_tokens, masked_lm_positions, masked_lm_labels)
 
-def write_instinces_to_file(args, vocab, instances):
+def write_epochs_to_file(args, vocab, epochs):
 
-    total_written = 0
-    features = collections.OrderedDict()
-    pad_id = vocab.word2idx["<PAD>"]
- 
-    num_instances = len(instances)
-    features["input_ids"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
-    features["input_mask"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
-    features["segment_ids"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
-    features["masked_lm_positions"] =  np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
-    features["masked_lm_ids"] = np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
-    features["seq_level_labels"] = np.zeros(num_instances, dtype="int32")
-
-    for ind, instance in enumerate(tqdm(instances, desc="writing to file")):
-        input_ids = instance.tokens
-        input_mask = [1] * len(input_ids)
-        segment_ids = instance.segment_ids
-        assert len(input_ids) <= args.max_seq_length
-
-        # add padding
-        while len(input_ids) < args.max_seq_length:
-            input_ids.append(pad_id)
-            input_mask.append(0)
-            segment_ids.append(0)
-
-        assert len(input_ids) == args.max_seq_length
-        assert len(input_mask) == args.max_seq_length
-        assert len(segment_ids) == args.max_seq_length
-
-        masked_lm_positions = instance.masked_lm_positions
-        masked_lm_ids = instance.masked_lm_labels
-        masked_lm_weights = [1.0] * len(masked_lm_ids)
-
-        while len(masked_lm_positions) < args.max_predictions_per_seq:
-            masked_lm_positions.append(0)
-            masked_lm_ids.append(0)
-            masked_lm_weights.append(0.0)
-
-        seq_level_labels = instance.seq_level_labels or 0
-
-        features["input_ids"][ind] = input_ids
-        features["input_mask"][ind] = input_mask
-        features["segment_ids"][ind] = segment_ids
-        features["masked_lm_positions"][ind] = masked_lm_positions
-        features["masked_lm_ids"][ind] = masked_lm_ids
-        features["seq_level_labels"][ind] = seq_level_labels
-
-        total_written += 1
-
-    filename = "{}_seq_len_{}_max_pred_{}_mlm_prob_{}_random_seed_{}_dupe_{}.hdf5".format(
+    dir_name = "{}_seq_len_{}_max_pred_{}_mlm_prob_{}_random_seed_{}_dupe_{}".format(
             args.save, 
             args.max_seq_length, 
             args.max_predictions_per_seq, 
@@ -283,16 +236,82 @@ def write_instinces_to_file(args, vocab, instances):
             args.random_seed, 
             args.dupe_factor
             )
-    print("saving data to {}".format(filename))
-    f = h5py.File(filename, 'w')
-    f.create_dataset("input_ids", data=features["input_ids"], dtype='i4', compression='gzip')
-    f.create_dataset("input_mask", data=features["input_mask"], dtype='i1', compression='gzip')
-    f.create_dataset("segment_ids", data=features["segment_ids"], dtype='i1', compression='gzip')
-    f.create_dataset("masked_lm_positions", data=features["masked_lm_positions"], dtype='i4', compression='gzip')
-    f.create_dataset("masked_lm_ids", data=features["masked_lm_ids"], dtype='i4', compression='gzip')
-    f.create_dataset("seq_level_labels", data=features["seq_level_labels"], dtype='i1', compression='gzip')
-    f.flush()
-    f.close()
+
+    if os.path.exists(dir_name) and (os.listdir(dir_name) and any([i for i in os.listdir(dir_name)])):
+        raise ValueError("Output directory ({}) already exists and is not empty.".format(dir_name))
+
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+
+    for epoch, instances in enumerate(epochs):
+        total_written = 0
+        features = collections.OrderedDict()
+        pad_id = vocab.word2idx["<PAD>"]
+ 
+        num_instances = len(instances)
+        features["input_ids"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
+        features["input_mask"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
+        features["segment_ids"] = np.zeros([num_instances, args.max_seq_length], dtype="int32")
+        features["masked_lm_positions"] =  np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
+        features["masked_lm_ids"] = np.zeros([num_instances, args.max_predictions_per_seq], dtype="int32")
+        features["seq_level_labels"] = np.zeros(num_instances, dtype="int32")
+
+        for ind, instance in enumerate(tqdm(instances, desc="writing to file")):
+            input_ids = instance.tokens
+            input_mask = [1] * len(input_ids)
+            segment_ids = instance.segment_ids
+            assert len(input_ids) <= args.max_seq_length
+
+            # add padding
+            while len(input_ids) < args.max_seq_length:
+                input_ids.append(pad_id)
+                input_mask.append(0)
+                segment_ids.append(0)
+
+            assert len(input_ids) == args.max_seq_length
+            assert len(input_mask) == args.max_seq_length
+            assert len(segment_ids) == args.max_seq_length
+
+            masked_lm_positions = instance.masked_lm_positions
+            masked_lm_ids = instance.masked_lm_labels
+            masked_lm_weights = [1.0] * len(masked_lm_ids)
+
+            while len(masked_lm_positions) < args.max_predictions_per_seq:
+                masked_lm_positions.append(0)
+                masked_lm_ids.append(0)
+                masked_lm_weights.append(0.0)
+
+            seq_level_labels = instance.seq_level_labels or 0
+
+            features["input_ids"][ind] = input_ids
+            features["input_mask"][ind] = input_mask
+            features["segment_ids"][ind] = segment_ids
+            features["masked_lm_positions"][ind] = masked_lm_positions
+            features["masked_lm_ids"][ind] = masked_lm_ids
+            features["seq_level_labels"][ind] = seq_level_labels
+
+            total_written += 1
+
+        filename = "{}_seq_len_{}_max_pred_{}_mlm_prob_{}_random_seed_{}_dupe_{}_{}.hdf5".format(
+                args.save, 
+                args.max_seq_length, 
+                args.max_predictions_per_seq, 
+                args.masked_lm_prob,
+                args.random_seed, 
+                args.dupe_factor,
+                epoch
+                )
+        filename = os.path.join(dir_name, filename)
+        print("saving data to {}".format(filename))
+        f = h5py.File(filename, 'w')
+        f.create_dataset("input_ids", data=features["input_ids"], dtype='i4', compression='gzip')
+        f.create_dataset("input_mask", data=features["input_mask"], dtype='i1', compression='gzip')
+        f.create_dataset("segment_ids", data=features["segment_ids"], dtype='i1', compression='gzip')
+        f.create_dataset("masked_lm_positions", data=features["masked_lm_positions"], dtype='i4', compression='gzip')
+        f.create_dataset("masked_lm_ids", data=features["masked_lm_ids"], dtype='i4', compression='gzip')
+        f.create_dataset("seq_level_labels", data=features["seq_level_labels"], dtype='i1', compression='gzip')
+        f.flush()
+        f.close()
 
 
 def main(args):
@@ -301,9 +320,9 @@ def main(args):
 
     rng = random.Random(args.random_seed)
 
-    pretrain_instances = create_pretrain_instances(args, vocab, rng)
+    pretrain_epochs = create_pretrain_epochs(args, vocab, rng)
 
-    write_instinces_to_file(args, vocab, pretrain_instances)
+    write_epochs_to_file(args, vocab, pretrain_epochs)
 
 
 if __name__ == "__main__":

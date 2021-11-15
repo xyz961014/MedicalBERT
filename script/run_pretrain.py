@@ -31,17 +31,17 @@ from model import MedicalBertForPreTraining, MedicalBertConfig
 from model import MedicalBertPretrainingCriterion
 from module import PolyWarmUpScheduler
 from data import MedicalPretrainingDataset
-from utils import is_main_process, get_world_size, get_rank, format_step
+from utils import is_main_process, get_world_size, get_rank, format_step, format_metric
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--input_file",
+    parser.add_argument("--input_dir",
                         default=None,
                         type=str,
                         required=True,
-                        help="The input data file for the task.")
+                        help="The input data dir. Should contain .hdf5 files for the task.")
     parser.add_argument("--config_file",
                         default=None,
                         type=str,
@@ -147,7 +147,9 @@ def setup_training(args):
     if is_main_process():
         dllogger.init(backends=[dllogger.JSONStreamBackend(verbosity=dllogger.Verbosity.VERBOSE,
                                                            filename=os.path.join(args.output_dir, args.json_summary)),
-                                dllogger.StdOutBackend(verbosity=dllogger.Verbosity.DEFAULT, step_format=format_step)])
+                                dllogger.StdOutBackend(verbosity=dllogger.Verbosity.DEFAULT, 
+                                                       step_format=format_step,
+                                                       metric_format=format_metric)])
     else:
         dllogger.init(backends=[])
 
@@ -270,23 +272,59 @@ def main(args):
     training_steps = 0
 
     # get data
-    restored_dataloader = None
-    if checkpoint is not None:
-        restored_dataloader = checkpoint.get("dataloader", None)
+    #restored_dataloader = None
+    #if checkpoint is not None:
+    #    restored_dataloader = checkpoint.get("dataloader", None)
 
-    if restored_dataloader is None:
-        train_dataset = MedicalPretrainingDataset(args.input_file)
-        train_sampler = RandomSampler(train_dataset)
-        train_dataloader = DataLoader(train_dataset, 
-                                      sampler=train_sampler,
-                                      batch_size=args.train_batch_size * len(args.devices),
-                                      num_workers=4, 
-                                      pin_memory=True)
-    else:
-        train_dataloader = restored_dataloader
+    #if restored_dataloader is None:
+    #    train_dataset = MedicalPretrainingDataset(args.input_file)
+    #    train_sampler = RandomSampler(train_dataset)
+    #    train_dataloader = DataLoader(train_dataset, 
+    #                                  sampler=train_sampler,
+    #                                  batch_size=args.train_batch_size * len(args.devices),
+    #                                  num_workers=4, 
+    #                                  pin_memory=True)
+    #else:
+    #    train_dataloader = restored_dataloader
 
     
     while True:
+
+        # get data of the epoch
+        restored_dataloader = None
+        if not args.resume_from_checkpoint or epoch > 0:
+            # not the first epoch of resuming or training from init
+            files = [os.path.join(args.input_dir, f) for f in os.listdir(args.input_dir)]
+            files.sort()
+            num_files = len(files)
+            random.Random(args.seed + epoch).shuffle(files)
+        else:
+            # first epoch of resume training 
+            files = checkpoint["files"]
+            args.resume_from_checkpoint = False
+            epoch = checkpoint.get("epoch", 0)
+            restored_dataloader = checkpoint.get("dataloader", None)
+        
+        # choose file in this epoch
+        if args.distributed:
+            select_id = (get_rank() + epoch * get_world_size()) % num_files 
+        else:
+            select_id = epoch % num_files 
+
+        data_file = files[select_id]
+
+        if restored_dataloader is None:
+            print("Device {}: Load Data {}".format(get_rank(), os.path.split(data_file)[-1]))
+            train_dataset = MedicalPretrainingDataset(data_file)
+            train_sampler = RandomSampler(train_dataset)
+            train_dataloader = DataLoader(train_dataset, 
+                                          sampler=train_sampler,
+                                          batch_size=args.train_batch_size * len(args.devices),
+                                          num_workers=4, 
+                                          pin_memory=True)
+        else:
+            print("Restore Data on Device {}".format(get_rank()))
+            train_dataloader = restored_dataloader
 
         train_iter = tqdm(train_dataloader, 
                           desc="Epoch {}".format(epoch + 1)) if is_main_process() else train_dataloader
@@ -340,6 +378,7 @@ def main(args):
                     output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
                     torch.save({'model': model_to_save.state_dict(),
                                 'optimizer': optimizer.state_dict(),
+                                'files': files,
                                 'epoch': epoch,
                                 'data_loader': None if global_step >= args.max_steps else train_dataloader}, 
                                 output_save_file)
@@ -351,6 +390,7 @@ def main(args):
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:
+                del train_dataloader
                 # possible final logging
 
                 # deal with logger
@@ -359,7 +399,7 @@ def main(args):
 
                 return
 
-
+        del train_dataloader
         epoch += 1
 
 

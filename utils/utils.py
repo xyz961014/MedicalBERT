@@ -26,11 +26,27 @@ def format_step(step):
         return step
     s = ""
     if len(step) > 0:
-        s += "Training Epoch: {} ".format(step[0])
+        s += "Epoch: {} ".format(step[0])
     if len(step) > 1:
-        s += "Training Iteration: {} ".format(step[1])
+        s += "Step: {} ".format(step[1])
     if len(step) > 2:
-        s += "Validation Iteration: {} ".format(step[2])
+        s += "Validation Step: {} ".format(step[2])
     return s
+
+def format_metric(metric, metadata, value):
+
+    if metadata:
+        unit = metadata["unit"] if "unit" in metadata.keys() else ""
+        format_str = "{" + metadata["format"] + "}" if "format" in metadata.keys() else "{}"
+    else:
+        format_table = {
+                "average_loss": "{:5.5f}",
+                "step_loss": "{:5.5f}",
+                "learning_eate": "{:5.5f}"
+                       }
+        unit = ""
+        format_str = format_table[metric] if metric in format_table.keys() else "{}"
+    output_str = "{} : {} {}".format(metric, format_str.format(value) if value is not None else value, unit)
+    return output_str
 
 
