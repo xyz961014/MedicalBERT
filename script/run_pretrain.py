@@ -358,7 +358,7 @@ def main(args):
             
             # logging loss
             if global_step > 0 and global_step % args.log_freq == 0:
-                if is_main_process():
+                if is_main_process() and training_steps % args.gradient_accumulation_steps == 0:
                     if global_step % args.display_freq == 0:
                         verbosity = dllogger.Verbosity.DEFAULT
                     else:
@@ -372,7 +372,7 @@ def main(args):
 
             # save model per args.num_steps_per_checkpoint
             if global_step > 0 and global_step % args.num_steps_per_checkpoint == 0:
-                if is_main_process():
+                if is_main_process() and training_steps % args.gradient_accumulation_steps == 0:
                     dllogger.log(step="PARAMETER", data={"checkpoint_step": global_step})
                     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
                     output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
