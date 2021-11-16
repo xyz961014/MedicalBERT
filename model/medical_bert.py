@@ -463,14 +463,14 @@ class MedicalBertPreTrainedModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None,
+    def from_pretrained(cls, pretrained_model_path, state_dict=None, cache_dir=None,
                         *inputs, **kwargs):
         """
         Instantiate a MedicalBertPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
 
         Params:
-            pretrained_model_name_or_path: either:
+            pretrained_model_path: either:
                 - a path to a pretrained model archive containing:
                     . `bert_config.json` a configuration file for the model
                     . `pytorch_model.bin` a PyTorch dump of a MedicalBertForPreTraining instance
@@ -478,10 +478,10 @@ class MedicalBertPreTrainedModel(nn.Module):
             state_dict: an optional state dictionnary (collections.OrderedDict object) to use instead of Google pre-trained models
             *inputs, **kwargs: additional input for the specific MedicalBert class
         """
-        CONFIG_NAME = "bert_config.json"
+        CONFIG_NAME = "model_config.json"
         WEIGHTS_NAME = "pytorch_model.bin"
 
-        archive_file = pretrained_model_name_or_path
+        archive_file = pretrained_model_path
         # redirect to the cache, if necessary
         try:
             resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)

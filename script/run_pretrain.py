@@ -358,8 +358,8 @@ def main(args):
                 model.zero_grad()
             
             # logging loss
-            if global_step > 0 and global_step % args.log_freq == 0:
-                if is_main_process() and training_steps % args.gradient_accumulation_steps == 0:
+            if training_steps % (args.gradient_accumulation_steps * args.log_freq) == 0:
+                if is_main_process():
                     if global_step % args.display_freq == 0:
                         verbosity = dllogger.Verbosity.DEFAULT
                     else:
@@ -391,7 +391,14 @@ def main(args):
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:
+
                 del train_dataloader
+
+                # save final model
+                final_model_to_save = model.module if hasattr(model, 'module') else model  
+                final_save_file = os.path.join(args.output_dir, "pytorch_model.bin")
+                torch.save(final_model_to_save, final_save_file)
+
                 # possible final logging
 
                 # deal with logger
