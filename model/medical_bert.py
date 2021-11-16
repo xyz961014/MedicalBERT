@@ -481,28 +481,27 @@ class MedicalBertPreTrainedModel(nn.Module):
         CONFIG_NAME = "model_config.json"
         WEIGHTS_NAME = "pytorch_model.bin"
 
-        archive_file = pretrained_model_path
+        #archive_file = pretrained_model_path
         # redirect to the cache, if necessary
-        try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
-        except EnvironmentError:
-            logger.error(
-                "Couldn't find any file in {} ".format(archive_file))
-            return None
-        if resolved_archive_file == archive_file:
-            logger.info("loading archive file {}".format(archive_file))
-        else:
-            logger.info("loading archive file {} from cache at {}".format(
-                archive_file, resolved_archive_file))
+        #try:
+        #    resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+        #except EnvironmentError:
+        #    logger.error(
+        #        "Couldn't find any file in {} ".format(archive_file))
+        #    return None
+        #if resolved_archive_file == archive_file:
+        #    logger.info("loading archive file {}".format(archive_file))
+        #else:
+        #    logger.info("loading archive file {} from cache at {}".format(
+        #        archive_file, resolved_archive_file))
         tempdir = None
-        if os.path.isdir(resolved_archive_file):
-            serialization_dir = resolved_archive_file
+        if os.path.isdir(pretrained_model_path):
+            serialization_dir = pretrained_model_path
         else:
             # Extract archive to temp dir
             tempdir = tempfile.mkdtemp()
-            logger.info("extracting archive file {} to temp dir {}".format(
-                resolved_archive_file, tempdir))
-            with tarfile.open(resolved_archive_file, 'r:gz') as archive:
+            logger.info("extracting archive file {} to temp dir {}".format(pretrained_model_path, tempdir))
+            with tarfile.open(pretrained_model_path, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
         # Load config
@@ -511,7 +510,7 @@ class MedicalBertPreTrainedModel(nn.Module):
         logger.info("Model config {}".format(config))
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
-        if state_dict is None and not from_tf:
+        if state_dict is None:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
             state_dict = torch.load(weights_path, map_location='cpu' if not torch.cuda.is_available() else None)
         if tempdir:

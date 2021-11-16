@@ -247,6 +247,7 @@ def main(args):
                 checkpoint['optimizer']['state'][key]['step'] = global_step
             for it, item in enumerate(checkpoint['optimizer']['param_groups']):
                 checkpoint['optimizer']['param_groups'][it]['lr'] = args.learning_rate
+        lr_scheduler.step(global_step)
         optimizer.load_state_dict(checkpoint['optimizer'])  # , strict=False)
 
     # convert model for DDP training
@@ -397,7 +398,7 @@ def main(args):
                 # save final model
                 final_model_to_save = model.module if hasattr(model, 'module') else model  
                 final_save_file = os.path.join(args.output_dir, "pytorch_model.bin")
-                torch.save(final_model_to_save, final_save_file)
+                torch.save(final_model_to_save.state_dict(), final_save_file)
 
                 # possible final logging
 
