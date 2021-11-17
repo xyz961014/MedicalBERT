@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import math
+import json
 import csv
 import time
 import random
@@ -21,7 +22,6 @@ import torch.multiprocessing as mp
 
 from torch.utils.tensorboard import SummaryWriter
 
-
 import dllogger
 
 curr_path = os.path.split(os.path.realpath(__file__))[0]
@@ -37,7 +37,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--input_dir",
+    parser.add_argument("--data_dir",
                         default=None,
                         type=str,
                         required=True,
@@ -111,8 +111,7 @@ def parse_args():
     parser.add_argument('--num_steps_per_checkpoint',
                         type=int,
                         default=100,
-                        help="Number of update steps until "
-                             "a model checkpoint is saved to disk.")
+                        help="Number of update steps until a model checkpoint is saved to disk.")
     parser.add_argument('--json-summary', type=str, default="dllogger.json",
                         help='If provided, the json summary will be written to'
                              'the specified file.')
@@ -179,9 +178,6 @@ def main(args):
 
     assert torch.cuda.is_available()
 
-    #time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-    #args.output_dir = "{}_{}".format(args.output_dir, time_str)
-
     # prepare summary writer for Tensorboard
     writer_path = "{}/../log".format(args.output_dir)
     os.makedirs(writer_path, exist_ok=True)
@@ -190,7 +186,7 @@ def main(args):
     # initial training settings
     device, args = setup_training(args)
 
-    dllogger.log(step="PARAMETER", data={"Config": [str(args)]})
+    dllogger.log(step="PARAMETER", data={"Config": json.dumps(args.__dict__, indent=4)})
 
     # get model config
     config = MedicalBertConfig.from_json_file(args.config_file)
@@ -295,7 +291,7 @@ def main(args):
         restored_dataloader = None
         if not args.resume_from_checkpoint or epoch > 0:
             # not the first epoch of resuming or training from init
-            files = [os.path.join(args.input_dir, f) for f in os.listdir(args.input_dir)]
+            files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir)]
             files.sort()
             num_files = len(files)
             random.Random(args.seed + epoch).shuffle(files)

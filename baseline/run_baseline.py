@@ -11,10 +11,14 @@ import torch.nn.functional as F
 from collections import defaultdict
 from tqdm import tqdm
 
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
+sys.path.append(os.path.join(curr_path, "..", "data"))
+
 from models import GAMENet, Leap, MLP, DualMLP, Transformer, DualTransformer
+from data.dataset import MedicalRecommendationDataset
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
-from utils import MedicalRecommendationDataset
 
 curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
@@ -43,7 +47,7 @@ def parse_args():
                         help='load checkpoint')
     parser.add_argument("--save_path", type=str, default="/home/xyz/xyz/experiments/medical",
                         help="dir path to save the model")
-    parser.add_argument("--data_path", type=str, default="../data",
+    parser.add_argument("--data_path", type=str, default="../data/processed_data",
                         help="dir path of processed data")
     parser.add_argument("--data_prefix", type=str, default="multi_visit",
                         help="prefix of processed data")

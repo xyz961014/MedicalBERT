@@ -1,11 +1,9 @@
 import numpy as np
-import pandas as pd
 import os
 import sys
 import warnings
 import dill
 import random
-from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
 
