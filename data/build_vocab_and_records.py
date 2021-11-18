@@ -71,9 +71,26 @@ class PretrainVocab(object):
         types = list(set(self.idx2type.values()))
         repr_str += "\nContaining types: " + ", ".join(types)
         for t in types:
-            repr_str += "\n# {}: {}".format(t, len([v for v in self.idx2type.values() if v == t]))
+            repr_str += "\n# {}: {}".format(t, self.get_type_vocab_size(t))
         return repr_str
 
+    def get_type_vocab_size(self, typ):
+        return len([v for v in self.idx2type.values() if v == typ])
+
+    def build_intra_type_index(self, typ):
+        if not hasattr(self, "intra_type_index"):
+            self.intra_type_index = {}
+        if not typ in list(set(self.idx2type.values())):
+            raise ValueError("Type {} does not exist in Vocab".format(typ))
+        intra_type_index = {}
+        intra_idx = 0
+        for i, t in self.idx2type.items():
+            if typ == t:
+                intra_type_index[i] = intra_idx
+                intra_idx += 1
+        self.intra_type_index[typ] = intra_type_index
+
+        return intra_type_index
 
     def normalize_word(self, word, typ):
         if typ in self.type_with_id:
@@ -87,6 +104,13 @@ class PretrainVocab(object):
             return word
         else:
             return word
+
+    def get_word_id(self, word, typ):
+        word = self.normalize_word(word, typ)
+        if word in self.word2idx.keys():
+            return self.word2idx[word]
+        else:
+            return self.word2idx["<UNK>"]
 
     def add_word(self, word, typ):
         word = self.normalize_word(word, typ)
@@ -147,7 +171,7 @@ def build_vocab(args):
     
     for index, row in df.iterrows():
         diag_vocab.add_sentence(row['ICD9_CODE'])
-        proc_vocab.add_sentence(row['PRO_CODE'])
+        proc_vocab.add_sentence(row['PROC_CODE'])
         med_vocab.add_sentence(row['NDC'])
 
     vocab = {
@@ -165,7 +189,7 @@ def build_vocab(args):
 
 def build_pretrain_vocab(args, df):
 
-    special_tokens = ["<PAD>", "<CLS>", "<MASK>", "<ADMISSION>", "<DAY>"]
+    special_tokens = ["<PAD>", "<CLS>", "<MASK>", "<ADMISSION>", "<DAY>", "<UNK>"]
     value_special_tokens = ["<NORMAL>", "<ABNORMAL>", "<DELTA>"]
     special_tokens += ["<SPECIAL{}>".format(i) for i in range(0, 64 - len(special_tokens))]
         
@@ -203,14 +227,13 @@ def build_pretrain_vocab(args, df):
 
     return vocab
 
-def build_records(args, vocab):
+def build_records(df, vocab, save=None):
     print("build records ...")
-    df = pd.read_pickle(args.data_path)
     diag_vocab = vocab["diag_vocab"]
     proc_vocab = vocab["proc_vocab"]
     med_vocab = vocab["med_vocab"]
 
-    records = [] # (patient, code_kind:3, codes)  code_kind:diag, proc, med
+    records = [] # (patient, code_type: 3, codes)  code_type:diag, proc, med
     num_admissions = 0
     for subject_id in df['SUBJECT_ID'].unique():
         item_df = df[df['SUBJECT_ID'] == subject_id]
@@ -218,16 +241,50 @@ def build_records(args, vocab):
         for index, row in item_df.iterrows():
             admission = []
             admission.append([diag_vocab.word2idx[i] for i in row['ICD9_CODE']])
-            admission.append([proc_vocab.word2idx[i] for i in row['PRO_CODE']])
+            admission.append([proc_vocab.word2idx[i] for i in row['PROC_CODE']])
             admission.append([med_vocab.word2idx[i] for i in row['NDC']])
             patient.append(admission)
             num_admissions += 1
         records.append(patient) 
-    dill.dump(obj=records, file=open('{}_records.pkl'.format(args.save), 'wb'))
+    if save is not None:
+        dill.dump(obj=records, file=open('{}_records.pkl'.format(args.save), 'wb'))
     print("build records complete!")
     print("#patients: {}".format(len(records)))
     print("#admissions: {}".format(num_admissions))
     return records
+
+
+def build_records_for_pretrain_vocab(df, vocab, save=None):
+    print("build records ...")
+
+    records = [] # (patient, code_type: 3, codes)  code_type:diag, proc, med
+    num_admissions = 0
+    atcs = []
+    for subject_id in df['SUBJECT_ID'].unique():
+        item_df = df[df['SUBJECT_ID'] == subject_id]
+        patient = []
+        for index, row in item_df.iterrows():
+            admission = []
+            admission.append([vocab.get_word_id(i, "DIAG") for i in row['ICD9_CODE']])
+            admission.append([vocab.get_word_id(i, "PROC") for i in row['PROC_CODE']])
+            for atc in row["NDC"]:
+                if not atc in atcs:
+                    atcs.append(atc)
+                if not vocab.normalize_word(atc, "MED-ATC") in vocab.word2idx.keys():
+                    vocab.add_word(atc, "MED-ATC")
+            admission.append([vocab.get_word_id(i, "MED-ATC") for i in row['NDC']])
+            admission.append([vocab.get_word_id(i, "MED") for i in row['NDC_ORIGINAL']])
+            patient.append(admission)
+            num_admissions += 1
+        records.append(patient) 
+    if save is not None:
+        dill.dump(obj=records, file=open('{}_records.pkl'.format(args.save), 'wb'))
+    print("build records for pretrain vocab complete!")
+    print("#patients: {}".format(len(records)))
+    print("#admissions: {}".format(num_admissions))
+    print("#medications to predict: {}".format(len(atcs)))
+    return records
+
 
 def build_token(args, vocab, df):
 
@@ -409,6 +466,7 @@ if __name__ == "__main__":
         build_pretrain_data(args, vocab, data_df)
     else:
         vocab = build_vocab(args)
-        build_records(args, vocab)
+        df = pd.read_pickle(args.data_path)
+        build_records(df, vocab, save=args.save)
 
 

@@ -47,7 +47,7 @@ def parse_args():
                         help='load checkpoint')
     parser.add_argument("--save_path", type=str, default="/home/xyz/xyz/experiments/medical",
                         help="dir path to save the model")
-    parser.add_argument("--data_path", type=str, default="../data/processed_data",
+    parser.add_argument("--data_dir", type=str, default="../data/processed_data",
                         help="dir path of processed data")
     parser.add_argument("--data_prefix", type=str, default="multi_visit",
                         help="prefix of processed data")
@@ -94,8 +94,6 @@ def parse_args():
                         help="dropout rate")
     parser.add_argument('--shuffle', action='store_true',
                         help="shuffle data when training")
-    parser.add_argument('--permute', action='store_true',
-                        help="permute data when training")
 
     return parser.parse_args()
 
@@ -185,7 +183,7 @@ def main(args):
     
         # ddi rate
         ddi_rate = ddi_rate_score(y_pred_labels,
-                                  path=os.path.join(args.data_path, "ddi_A_final.pkl"))
+                                  path=os.path.join(args.data_dir, "ddi_A_final.pkl"))
     
         if args.model_name == "Leap":
             (jaccard, 
@@ -255,7 +253,7 @@ def main(args):
                     target_output1[target_output1 < 0.5] = 0
                     y_label = np.where(target_output1 == 1)[0]
                     current_ddi_rate = ddi_rate_score([[y_label]], 
-                                                      path=os.path.join(args.data_path, "ddi_A_final.pkl"))
+                                                      path=os.path.join(args.data_dir, "ddi_A_final.pkl"))
                     if current_ddi_rate <= args.target_ddi:
                         loss = args.alpha_bce * loss1 + args.alpha_margin * loss3
                         prediction_loss_count += 1
@@ -321,8 +319,8 @@ def main(args):
 
     # Load Data
 
-    #data = dill.load(open(os.path.join(args.data_path, "records_final.pkl"), "rb"))
-    #vocab = dill.load(open(os.path.join(args.data_path, "voc_final.pkl"), "rb"))
+    #data = dill.load(open(os.path.join(args.data_dir, "records_final.pkl"), "rb"))
+    #vocab = dill.load(open(os.path.join(args.data_dir, "voc_final.pkl"), "rb"))
     #diag_vocab = vocab['diag_voc']
     #proc_vocab = vocab['pro_voc']
     #med_vocab = vocab['med_voc']
@@ -334,13 +332,18 @@ def main(args):
     #data_test = data[split_point:split_point + eval_len]
     #data_eval = data[split_point+eval_len:]
     ## special data for GAMENet
-    #ehr_adj = dill.load(open(os.path.join(args.data_path, "ehr_adj_final.pkl"), "rb"))
-    #ddi_adj = dill.load(open(os.path.join(args.data_path, "ddi_A_final.pkl"), "rb"))
+    #ehr_adj = dill.load(open(os.path.join(args.data_dir, "ehr_adj_final.pkl"), "rb"))
+    #ddi_adj = dill.load(open(os.path.join(args.data_dir, "ddi_A_final.pkl"), "rb"))
 
-    dataset = MedicalRecommendationDataset(args.data_path, args.data_prefix)
+    # load vocab
+    vocab = dill.load(open(os.path.join(args.data_dir, "{}_vocab.pkl".format(args.data_prefix)), "rb"))
+
+    dataset = MedicalRecommendationDataset(data_dir=args.data_dir, 
+                                           data_file="{}_data.pkl".format(args.data_prefix),
+                                           vocab=vocab
+                                           )
     train_loader, eval_loader, test_loader = dataset.get_dataloader(args.model_name, 
                                                                     shuffle=args.shuffle, 
-                                                                    permute=args.permute,
                                                                     history=args.history)
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(args.model_name, history=args.history)

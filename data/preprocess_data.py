@@ -254,7 +254,8 @@ def main(args):
         med_pd['RXCUI'] = med_pd['RXCUI'].astype('int64')
         med_pd = med_pd.reset_index(drop=True)
         med_pd = med_pd.merge(rxnorm2atc, on=['RXCUI'])
-        med_pd.drop(columns=['NDC', 'RXCUI'], inplace=True)
+        med_pd.drop(columns=['RXCUI'], inplace=True)
+        med_pd = med_pd.rename(columns={'NDC':'NDC_ORIGINAL'})
         med_pd = med_pd.rename(columns={'ATC4':'NDC'})
         med_pd['NDC'] = med_pd['NDC'].map(lambda x: x[:4])
         med_pd = med_pd.drop_duplicates()    
@@ -283,10 +284,16 @@ def main(args):
     
         # flatten and merge
         diag_pd = diag_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index()  
+
+        med_original_pd = med_pd.groupby(by=['SUBJECT_ID', 'HADM_ID'])['NDC_ORIGINAL'].unique().reset_index()
         med_pd = med_pd.groupby(by=['SUBJECT_ID', 'HADM_ID'])['NDC'].unique().reset_index()
-        proc_pd = proc_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index().rename(columns={'ICD9_CODE':'PROC_CODE'})  
+        med_pd = med_pd.merge(med_original_pd, on=["SUBJECT_ID", "HADM_ID"], how="inner")
         med_pd['NDC'] = med_pd['NDC'].map(lambda x: list(x))
+        med_pd['NDC_ORIGINAL'] = med_pd['NDC_ORIGINAL'].map(lambda x: list(x))
+
+        proc_pd = proc_pd.groupby(by=['SUBJECT_ID','HADM_ID'])['ICD9_CODE'].unique().reset_index().rename(columns={'ICD9_CODE':'PROC_CODE'})  
         proc_pd['PROC_CODE'] = proc_pd['PROC_CODE'].map(lambda x: list(x))
+
         data = diag_pd.merge(med_pd, on=['SUBJECT_ID', 'HADM_ID'], how='inner')
         data = data.merge(proc_pd, on=['SUBJECT_ID', 'HADM_ID'], how='inner')
         #     data['ICD9_CODE_Len'] = data['ICD9_CODE'].map(lambda x: len(x))

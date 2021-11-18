@@ -11,8 +11,10 @@ import socket
 import dill
 from tqdm import tqdm
 from copy import copy
+from collections import defaultdict
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, Dataset
@@ -44,7 +46,15 @@ from utils import llprint, multi_label_metric, ddi_rate_score
 TASKS = {
         "medication_recommendation": {
                                         "dataset": MedicalRecommendationDataset, 
-                                        "dataset_args": {"data_prefix": "multi_visit"}
+                                        "dataset_args": {
+                                                            "data_file": "multi_visit_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": True,
+                                                        },
+                                        "task_label": "MED-ATC",
                                      },
         }
 
@@ -66,7 +76,7 @@ def parse_args():
                         type=str,
                         default=None,
                         required=True,
-                        help="Vocabulary file MedicalBert was pretrainined on")
+                        help="Vocabulary file MedicalBert was pretrained on")
     parser.add_argument("--output_dir",
                         default=None,
                         type=str,
@@ -87,10 +97,10 @@ def parse_args():
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
-    parser.add_argument("--max_steps",
-                        default=1000,
-                        type=float,
-                        help="Total number of training steps to perform.")
+    parser.add_argument("--max_epochs",
+                        default=5,
+                        type=int,
+                        help="Total epoch of training steps to perform.")
     parser.add_argument("--warmup_proportion",
                         default=0.01,
                         type=float,
@@ -117,10 +127,6 @@ def parse_args():
                         type=int,
                         default=-1,
                         help="Step to resume training from.")
-    parser.add_argument("--init_checkpoint",
-                        default=None,
-                        type=str,
-                        help="The initial checkpoint to start training from.")
     parser.add_argument('--num_steps_per_checkpoint',
                         type=int,
                         default=100,
@@ -138,15 +144,25 @@ def parse_args():
     parser.add_argument('--display_freq',
                         type=int, default=100,
                         help='frequency of displaying logging.')
-    parser.add_argument("--do_train",
+    parser.add_argument("--train",
                         action='store_true',
                         help="Whether to run training.")
-    parser.add_argument("--do_eval",
+    parser.add_argument("--eval",
                         action='store_true',
                         help="Whether to get model-task performance on the dev and test set by running eval.")
+    parser.add_argument('--eval_on_train', 
+                        action='store_true',
+                        help="eval on train set")
     parser.add_argument("--cpu",
                         action='store_true',
                         help="only use cpu, do not use gpu")
+
+    parser.add_argument("--alpha_bce", 
+                        type=float, default=0.9,
+                        help="multiply factor of bce loss")
+    parser.add_argument("--alpha_margin", 
+                        type=float, default=0.01,
+                        help="multiply factor of margin loss")
 
     return parser.parse_args()
 
@@ -181,8 +197,8 @@ def setup_training(args):
     print("device: {} n_gpu: {}, distributed training: {}".format(
         device, len(args.devices), bool(args.distributed)))
 
-    if not args.do_train and not args.do_eval:
-        raise ValueError("At least one of `do_train` or `do_eval` must be True.")
+    if not args.train and not args.eval:
+        raise ValueError("At least one of `train` or `eval` must be True.")
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
@@ -202,22 +218,92 @@ def setup_training(args):
 
     return device, args
 
-def get_dataset(args):
+def get_dataset(args, vocab):
 
     if not args.task_name in TASKS.keys():
         raise ValueError("Undefined task {}".format(args.task_name))
 
-    dataset = TASKS[args.task_name]["dataset"](data_path=args.data_dir, **TASKS[args.task_name]["dataset_args"])
-    import ipdb
-    ipdb.set_trace()
+    dataset = TASKS[args.task_name]["dataset"](data_dir=args.data_dir, 
+                                               vocab=vocab,
+                                               **TASKS[args.task_name]["dataset_args"])
 
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
+    if args.eval_on_train:
+        train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
+    else:
+        train_eval_loader = None
 
-    return dataset, train_loader, eval_loader, test_loader
+    return dataset, train_loader, eval_loader, test_loader, train_eval_loader
 
 
 def main(args):
 
+    def evaluate(evalloader):
+        
+        model.eval()
+        y_targets = []
+        y_preds = []
+        y_pred_probs = []
+        y_pred_labels = []
+        jaccard, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
+        med_count = 0
+        visit_count = 0
+
+        for step, data in tqdm(enumerate(evalloader), total=len(evalloader)):
+
+            # get data
+            input_ids, segment_ids, y_target = data
+            if len(input_ids) > config.max_position_embeddings:
+                input_ids = input_ids[-config.max_position_embeddings:]
+                segment_ids = segment_ids[-config.max_position_embeddings:]
+            input_ids = torch.LongTensor(input_ids).unsqueeze(0).to(device)
+            segment_ids = torch.LongTensor(segment_ids).unsqueeze(0).to(device)
+            input_mask = torch.ones_like(input_ids).to(device)
+
+            # predict
+            target_output = model(input_ids=input_ids, 
+                                  token_type_ids=segment_ids,
+                                  attention_mask=input_mask)
+            target_output = torch.sigmoid(target_output).detach().cpu().numpy()[0]
+            y_pred_prob = target_output
+            y_pred_tmp = target_output.copy()
+            y_pred_tmp[y_pred_tmp>=0.5] = 1
+            y_pred_tmp[y_pred_tmp<0.5] = 0
+            y_pred = y_pred_tmp
+            y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+            y_pred_label = sorted(y_pred_label_tmp)
+
+            med_count += len(y_pred_label)
+            visit_count += 1
+    
+            y_targets.append(y_target)
+            y_preds.append(y_pred)
+            y_pred_probs.append(y_pred_prob)
+            y_pred_labels.append(y_pred_label)
+
+        # ddi rate
+        ddi_rate = ddi_rate_score(y_pred_labels,
+                                  path=os.path.join(args.data_dir, "ddi_A_final.pkl"))
+        (jaccard, 
+         prauc, 
+         avg_p, 
+         avg_r, 
+         avg_f1) = multi_label_metric(np.array(y_targets), 
+                                      np.array(y_preds), 
+                                      np.array(y_pred_probs))
+
+        print("DDI Rate: {:6.4f} | Jaccard: {:10.4f} | PRAUC: {:7.4f}\n"
+              "AVG_PRC: {:7.4f} | AVG_RECALL: {:7.4f} | AVG_F1: {:6.4f}\n".format(
+              ddi_rate, 
+              jaccard, 
+              prauc, 
+              avg_p, 
+              avg_r, 
+              avg_f1
+        ))
+    
+        return ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1
+ 
     # prepare summary writer for Tensorboard
     writer_path = "{}/../log".format(args.output_dir)
     os.makedirs(writer_path, exist_ok=True)
@@ -232,13 +318,195 @@ def main(args):
     vocab = dill.load(open(args.vocab_file, "rb"))
 
     # get task data
-    dataset, train_loader, eval_loader, test_loader = get_dataset(args)
+    dataset, train_loader, eval_loader, test_loader, train_eval_loader = get_dataset(args, vocab)
 
-    import ipdb
-    ipdb.set_trace()
+    # get num_labels
+    num_labels = vocab.get_type_vocab_size(TASKS[args.task_name]["task_label"])
 
-    model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path)
-    pass
+    # get model config
+    config = MedicalBertConfig.from_json_file(os.path.join(args.pretrained_model_path, "model_config.json"))
+    config.with_pooler = True
+
+    # prepare pretrained model
+    model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
+                                                                 config=config,
+                                                                 num_labels=num_labels)
+
+    # load checkpoint if needed
+    checkpoint = None
+    if not args.resume_from_checkpoint:
+        global_step = 0
+    else:
+        if args.resume_step == -1:
+            model_names = [f for f in os.listdir(args.output_dir) if f.endswith(".pt")]
+            args.resume_step = max([int(x.split('.pt')[0].split('_')[1].strip()) for x in model_names])
+
+        global_step = args.resume_step
+
+        checkpoint = torch.load(os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step)), 
+                                map_location="cpu")
+        model.load_state_dict(checkpoint['model'], strict=False)
+        
+        if is_main_process():
+            print("resume step from ", args.resume_step)
+
+    model.to(device)
+
+    # build optimizer and scheduler
+    param_optimizer = list(model.named_parameters())
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
+
+    optimizer = optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
+    if args.resume_from_checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer"])
+
+    # convert model for DDP training
+    if args.distributed:
+        model = DDP(model, device_ids=[device], dim=0)
+    elif len(args.devices) > 1:
+        model = torch.nn.DataParallel(model)
+
+
+    if args.train:
+
+        if is_main_process():
+            print("=" * 25 + "    Finetuning {}    ".format(args.task_name) + "=" * 25)
+            dllogger.log(step="PARAMETER", data={"SEED": args.seed})
+            dllogger.log(step="PARAMETER", data={"train_start": True})
+            dllogger.log(step="PARAMETER", data={"batch_size_per_gpu": args.train_batch_size})
+            dllogger.log(step="PARAMETER", data={"learning_rate": args.learning_rate})
+
+        # prepare for training
+        model.train()
+        history = defaultdict(list)
+        best_step = 0
+        best_jaccard = 0
+        best_ckp = "final.model"
+        training_steps = 0
+
+        for epoch in range(1, args.max_epochs + 1):
+            start_time = time.time()
+
+            model.train()
+            loss_record = []
+            for step, data in enumerate(train_loader):
+    
+                # get data
+                input_ids, segment_ids, bce_loss_target, margin_loss_target = data
+                if len(input_ids) > config.max_position_embeddings:
+                    input_ids = input_ids[-config.max_position_embeddings:]
+                    segment_ids = segment_ids[-config.max_position_embeddings:]
+                input_ids = torch.LongTensor(input_ids).unsqueeze(0).to(device)
+                segment_ids = torch.LongTensor(segment_ids).unsqueeze(0).to(device)
+                input_mask = torch.ones_like(input_ids).to(device)
+
+                # compute loss
+                output_target = model(input_ids=input_ids,
+                                      token_type_ids=segment_ids,
+                                      attention_mask=input_mask)
+                bce_loss = F.binary_cross_entropy_with_logits(output_target, 
+                                                              torch.FloatTensor(bce_loss_target).to(device))
+                margin_loss = F.multilabel_margin_loss(torch.sigmoid(output_target), 
+                                                       torch.LongTensor(margin_loss_target).to(device))
+                loss = args.alpha_bce * bce_loss + args.alpha_margin * margin_loss
+
+                if args.gradient_accumulation_steps > 1:
+                    loss = loss / args.gradient_accumulation_steps
+
+                loss.backward()
+                loss_record.append(loss.item())
+                training_steps += 1
+
+                # optimize the model
+                if training_steps % args.gradient_accumulation_steps == 0:
+                    optimizer.step()
+                    global_step += 1
+                    model.zero_grad()
+    
+                # logging loss
+                if training_steps % (args.gradient_accumulation_steps * args.log_freq) == 0:
+                    if is_main_process():
+                        verbosity = dllogger.Verbosity.VERBOSE
+                        dllogger.log(step=(epoch, global_step, ), 
+                                     data={"average_loss": np.mean(loss_record),
+                                           "step_loss": loss.item() * args.gradient_accumulation_steps,
+                                           "lr": optimizer.param_groups[0]['lr']},
+                                     verbosity=verbosity)
+                        if global_step % args.display_freq == 0:
+                            print("\rTrain Epoch: {:3d} | Step: {:5d} / {:5d} "
+                                  "| Loss: {:5.5f}".format(epoch, global_step, len(train_loader), np.mean(loss_record)))
+
+                # save model per args.num_steps_per_checkpoint
+                if global_step > 0 and global_step % args.num_steps_per_checkpoint == 0:
+                    if is_main_process() and training_steps % args.gradient_accumulation_steps == 0:
+                        dllogger.log(step="PARAMETER", data={"checkpoint_step": global_step})
+                        # eval on checkpoint
+                        if args.eval_on_train:
+                            print("-" * 25 + "    Epoch %d Evaluating on Training Set    " % epoch + "-" * 25)
+                            evaluate(train_eval_loader)
+                        print("-" * 20 + "    Epoch {} Evaluating {} ".format(epoch, args.task_name) + 
+                              time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) + "-" * 20)
+                        ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(eval_loader)
+                        print("-" * (70 + len(args.task_name)))
+
+                        # save checkpoint
+                        model_to_save = model.module if hasattr(model, 'module') else model
+                        ckp_name = "ckpt_{}.pt".format(global_step)
+                        output_save_file = os.path.join(args.output_dir, ckp_name)
+                        torch.save({'model': model_to_save.state_dict(),
+                                    'optimizer': optimizer.state_dict(),
+                                    'epoch': epoch,
+                                    "jaccard": jaccard,
+                                    "ddi_rate": ddi_rate}, 
+                                    output_save_file)
+
+                        if best_jaccard < jaccard:
+                            best_step = global_step
+                            best_jaccard = jaccard
+                            best_ckp = ckp_name
+
+            mean_loss = np.mean(loss_record)
+
+
+
+
+            history['jaccard'].append(jaccard)
+            history['ddi_rate'].append(ddi_rate)
+            history['avg_p'].append(avg_p)
+            history['avg_r'].append(avg_r)
+            history['avg_f1'].append(avg_f1)
+            history['prauc'].append(prauc)
+
+            end_time = time.time()
+            elapsed_time = (end_time - start_time) / 60
+            print('Epoch: %d, Loss: %.4f, One Epoch Time: %.2fm, '
+                  'Approximate Left Time: %dh%dm\n' % (epoch,
+                                                       mean_loss,
+                                                       elapsed_time,
+                                                       int(elapsed_time * (args.max_epochs - epoch)) // 60,
+                                                       int(elapsed_time * (args.max_epochs - epoch)) % 60))
+
+
+
+        dill.dump(history, open(os.path.join(args.output_dir, 'history.pkl'), 'wb'))
+
+        # test
+        torch.save(model.state_dict(), open(os.path.join(args.output_dir, 'final.model'), 'wb'))
+
+        print('best_epoch:', best_epoch)
+
+    # Evaluation
+
+    if args.eval:
+        print("=" * 20 + "    Testing {} ".format(args.task_name) + 
+              time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 20)
+        if args.train and non_trivial:
+            model.load_state_dict(torch.load(open(os.path.join(args.output_dir, best_ckp)["model"], "rb")))
+        evaluate(test_loader)
 
 
 

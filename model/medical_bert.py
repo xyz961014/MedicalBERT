@@ -463,7 +463,7 @@ class MedicalBertPreTrainedModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_path, state_dict=None, cache_dir=None,
+    def from_pretrained(cls, pretrained_model_path, config=None, state_dict=None, cache_dir=None,
                         *inputs, **kwargs):
         """
         Instantiate a MedicalBertPreTrainedModel from a pre-trained model file or a pytorch state dict.
@@ -505,8 +505,9 @@ class MedicalBertPreTrainedModel(nn.Module):
                 archive.extractall(tempdir)
             serialization_dir = tempdir
         # Load config
-        config_file = os.path.join(serialization_dir, CONFIG_NAME)
-        config = MedicalBertConfig.from_json_file(config_file)
+        if config is None:
+            config_file = os.path.join(serialization_dir, CONFIG_NAME)
+            config = MedicalBertConfig.from_json_file(config_file)
         logger.info("Model config {}".format(config))
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
@@ -616,6 +617,7 @@ class MedicalBertModel(MedicalBertPreTrainedModel):
         # positions we want to attend and -10000.0 for masked positions.
         # Since we are adding it to the raw scores before the softmax, this is
         # effectively the same as removing these entirely.
+
         extended_attention_mask = extended_attention_mask.to(dtype=self.embeddings.word_embeddings.weight.dtype) # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
@@ -740,7 +742,7 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
     ```
     """
     def __init__(self, config, num_labels):
-        super().__init__()
+        super().__init__(config)
         self.num_labels = num_labels
         self.bert = MedicalBertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
