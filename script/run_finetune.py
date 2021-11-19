@@ -336,6 +336,8 @@ def main(args):
     checkpoint = None
     if not args.resume_from_checkpoint:
         global_step = 0
+        start_step = 0
+        curr_epoch = 1
     else:
         if args.resume_step == -1:
             model_names = [f for f in os.listdir(args.output_dir) if f.endswith(".pt")]
@@ -346,6 +348,8 @@ def main(args):
         checkpoint = torch.load(os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step)), 
                                 map_location="cpu")
         model.load_state_dict(checkpoint['model'], strict=False)
+        curr_epoch = checkpoint["epoch"]
+        start_step = checkpoint["step"] + 1
         
         if is_main_process():
             print("resume step from ", args.resume_step)
@@ -382,18 +386,27 @@ def main(args):
 
         # prepare for training
         model.train()
-        history = defaultdict(list)
-        best_step = 0
-        best_jaccard = 0
-        best_ckp = "final.model"
+        if checkpoint is None:
+            best_step = 0
+            best_jaccard = 0
+            best_ckp = "final.model"
+        else:
+            best_step = checkpoint["best"]["best_step"]
+            best_jaccard = checkpoint["best"]["best_jaccard"]
+            best_ckp = checkpoint["best"]["best_ckp"]
         training_steps = 0
 
-        for epoch in range(1, args.max_epochs + 1):
+        for epoch in range(curr_epoch, args.max_epochs + 1):
             start_time = time.time()
 
             model.train()
             loss_record = []
             for step, data in enumerate(train_loader):
+
+                if step < start_step:
+                    continue
+                else:
+                    start_step = 0
     
                 # get data
                 input_ids, segment_ids, bce_loss_target, margin_loss_target = data
@@ -437,8 +450,12 @@ def main(args):
                                            "lr": optimizer.param_groups[0]['lr']},
                                      verbosity=verbosity)
                         if global_step % args.display_freq == 0:
-                            print("\rTrain Epoch: {:3d} | Step: {:5d} / {:5d} "
-                                  "| Loss: {:5.5f}".format(epoch, global_step, len(train_loader), np.mean(loss_record)))
+                            print("\rTrain Epoch: {:3d} | Global Step: {:5d} | Step: {:5d} / {:5d} "
+                                  "| Loss: {:5.5f}".format(epoch,
+                                                           global_step,
+                                                           step + 1, 
+                                                           len(train_loader), 
+                                                           np.mean(loss_record)))
 
                 # save model per args.num_steps_per_checkpoint
                 if global_step > 0 and global_step % args.num_steps_per_checkpoint == 0:
@@ -452,6 +469,14 @@ def main(args):
                               time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) + "-" * 20)
                         ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(eval_loader)
                         print("-" * (70 + len(args.task_name)))
+                        dllogger.log(step=(epoch, global_step, ), 
+                                     data={"jaccard": jaccard,
+                                           "ddi_rate": ddi_rate,
+                                           "avg_precision": avg_p,
+                                           "avg_recall": avg_r,
+                                           "avg_f1": avg_f1,
+                                           "prauc": prauc},
+                                     verbosity=dllogger.Verbosity.VERBOSE)
 
                         # save checkpoint
                         model_to_save = model.module if hasattr(model, 'module') else model
@@ -460,6 +485,10 @@ def main(args):
                         torch.save({'model': model_to_save.state_dict(),
                                     'optimizer': optimizer.state_dict(),
                                     'epoch': epoch,
+                                    'step': step,
+                                    'best': {"best_step": best_step, 
+                                             "best_jaccard": best_jaccard, 
+                                             "best_ckp": best_ckp},
                                     "jaccard": jaccard,
                                     "ddi_rate": ddi_rate}, 
                                     output_save_file)
@@ -474,12 +503,6 @@ def main(args):
 
 
 
-            history['jaccard'].append(jaccard)
-            history['ddi_rate'].append(ddi_rate)
-            history['avg_p'].append(avg_p)
-            history['avg_r'].append(avg_r)
-            history['avg_f1'].append(avg_f1)
-            history['prauc'].append(prauc)
 
             end_time = time.time()
             elapsed_time = (end_time - start_time) / 60
@@ -491,21 +514,18 @@ def main(args):
                                                        int(elapsed_time * (args.max_epochs - epoch)) % 60))
 
 
-
-        dill.dump(history, open(os.path.join(args.output_dir, 'history.pkl'), 'wb'))
-
-        # test
+        # save final model
         torch.save(model.state_dict(), open(os.path.join(args.output_dir, 'final.model'), 'wb'))
 
-        print('best_epoch:', best_epoch)
+        print('best_step:', best_step)
 
     # Evaluation
 
     if args.eval:
         print("=" * 20 + "    Testing {} ".format(args.task_name) + 
               time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 20)
-        if args.train and non_trivial:
-            model.load_state_dict(torch.load(open(os.path.join(args.output_dir, best_ckp)["model"], "rb")))
+        if args.train:
+            model.load_state_dict(torch.load(open(os.path.join(args.output_dir, best_ckp), "rb"))["model"])
         evaluate(test_loader)
 
 

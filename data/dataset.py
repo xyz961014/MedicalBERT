@@ -94,7 +94,8 @@ class MedicalRecommendationDataset(object):
                                                       evaluate=True, history=history)
         return train_loader, eval_loader, test_loader
 
-    def get_train_eval_loader(self, model_name, history=False):
+    def get_train_eval_loader(self, model_name, shuffle=False, history=False):
+        print("-" * 10 + " Getting eval_loader on training set  " + '-' * 10)
         return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab, 
                                                evaluate=True, history=history)
 
