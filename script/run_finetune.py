@@ -52,7 +52,7 @@ TASKS = {
                                         "dataloader_args": {
                                                             "model_name": "MedicalBert",
                                                             "shuffle": False,
-                                                            "history": True,
+                                                            "history": False,
                                                         },
                                         "task_label": "MED-ATC",
                                      },
@@ -97,6 +97,10 @@ def parse_args():
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
+    parser.add_argument("--weight_decay", 
+                        default=0.0,
+                        type=float, 
+                        help="weight decay")
     parser.add_argument("--max_epochs",
                         default=5,
                         type=int,
@@ -301,7 +305,8 @@ def main(args):
               avg_r, 
               avg_f1
         ))
-    
+
+        model.train()
         return ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1
  
     # prepare summary writer for Tensorboard
@@ -325,7 +330,10 @@ def main(args):
 
     # get model config
     config = MedicalBertConfig.from_json_file(os.path.join(args.pretrained_model_path, "model_config.json"))
+    config.attention_probs_dropout_prob = 0.0
+    config.hidden_dropout_prob = 0.0
     config.with_pooler = True
+    dllogger.log(step="PARAMETER", data={"Model Config": config.to_json_string()})
 
     # prepare pretrained model
     model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
@@ -361,7 +369,7 @@ def main(args):
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
 
     optimizer = optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
