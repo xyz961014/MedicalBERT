@@ -750,8 +750,9 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
-        pooled_output = self.dropout(pooled_output)
+        encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
+        cls_repr = encoded_layers[-1][:, 0, :]
+        pooled_output = self.dropout(cls_repr)
         return self.classifier(pooled_output)
 
 

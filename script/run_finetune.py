@@ -167,6 +167,18 @@ def parse_args():
     parser.add_argument("--alpha_margin", 
                         type=float, default=0.01,
                         help="multiply factor of margin loss")
+    parser.add_argument('--history', 
+                        action='store_true',
+                        help="load data of admission history")
+    parser.add_argument("--attention_probs_dropout_prob", 
+                        type=float, default=0.1,
+                        help="dropout rate on attention probabilities")
+    parser.add_argument("--hidden_dropout_prob", 
+                        type=float, default=0.1,
+                        help="dropout rate on hidden layer")
+    parser.add_argument('--fix_model', 
+                        action='store_true',
+                        help="fix model parameter")
 
     return parser.parse_args()
 
@@ -231,6 +243,8 @@ def get_dataset(args, vocab):
                                                vocab=vocab,
                                                **TASKS[args.task_name]["dataset_args"])
 
+
+    TASKS[args.task_name]["dataloader_args"]["history"] = args.history
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
@@ -330,9 +344,9 @@ def main(args):
 
     # get model config
     config = MedicalBertConfig.from_json_file(os.path.join(args.pretrained_model_path, "model_config.json"))
-    config.attention_probs_dropout_prob = 0.0
-    config.hidden_dropout_prob = 0.0
-    config.with_pooler = True
+    #config.with_pooler = True
+    config.attention_probs_dropout_prob = args.attention_probs_dropout_prob
+    config.hidden_dropout_prob = args.hidden_dropout_prob
     dllogger.log(step="PARAMETER", data={"Model Config": config.to_json_string()})
 
     # prepare pretrained model
@@ -365,12 +379,25 @@ def main(args):
     model.to(device)
 
     # build optimizer and scheduler
-    param_optimizer = list(model.named_parameters())
+    named_params = list(model.named_parameters())
+    if args.fix_model:
+        param_to_optimize = []
+        for name, param in named_params:
+            if "classifier" in name:
+                param_to_optimize.append((name, param))
+    else:
+        param_to_optimize = named_params
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
+        {
+            'params': [p for n, p in param_to_optimize if not any(nd in n for nd in no_decay)], 
+            'weight_decay': args.weight_decay
+        },
+        {
+            'params': [p for n, p in param_to_optimize if any(nd in n for nd in no_decay)], 
+            'weight_decay': 0.0
+        }]
 
     optimizer = optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
     if args.resume_from_checkpoint:
