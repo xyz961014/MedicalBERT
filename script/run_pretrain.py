@@ -268,6 +268,8 @@ def main(args):
     average_loss = 0.0  # averaged loss every args.log_freq steps
     epoch = 0
     training_steps = 0
+    period_correct_num = 0
+    period_total_num = 0
 
     # get data
     #restored_dataloader = None
@@ -340,6 +342,10 @@ def main(args):
             # compute loss
             loss = criterion(pred_scores, seq_level_score, masked_lm_labels, seq_level_labels)
 
+            batch_correct_num, batch_total_num = criterion.correct_predict_num(pred_scores, masked_lm_labels)
+            period_correct_num += batch_correct_num
+            period_total_num += batch_total_num
+
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
@@ -386,6 +392,15 @@ def main(args):
                     if len(most_recent_ckpts_paths) > 5:
                         ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
                         os.remove(ckpt_to_be_removed)
+
+                    if period_total_num > 0:
+                        predict_accuracy = period_correct_num / period_total_num
+                    else:
+                        predict_accuracy = 0.
+                    dllogger.log(step=(epoch, global_step, ),
+                                 data={"predict_accuracy": predict_accuracy})
+                    period_correct_num = 0
+                    period_total_num = 0
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:

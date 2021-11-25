@@ -773,4 +773,15 @@ class MedicalBertPretrainingCriterion(nn.Module):
         total_loss = masked_lm_loss + seq_level_loss
         return total_loss
 
+    def correct_predict_num(self, prediction_scores, labels):
+        prediction_scores = prediction_scores.reshape(-1, prediction_scores.size(-1))
+        labels = labels.reshape(-1)
+        predict_ids = labels.eq(-1).eq(False).nonzero().squeeze(-1)
+        prediction_scores = prediction_scores[predict_ids]
+        labels = labels[predict_ids]
+        pred_labels = torch.argmax(prediction_scores, dim=1)
+        correct_num = pred_labels.eq(labels).sum().item()
+        total_num = pred_labels.size(0)
+        return correct_num, total_num
+
 
