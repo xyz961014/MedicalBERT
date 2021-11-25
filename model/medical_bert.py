@@ -776,7 +776,7 @@ class MedicalBertPretrainingCriterion(nn.Module):
     def correct_predict_num(self, prediction_scores, labels):
         prediction_scores = prediction_scores.reshape(-1, prediction_scores.size(-1))
         labels = labels.reshape(-1)
-        predict_ids = labels.eq(-1).eq(False).nonzero().squeeze(-1)
+        predict_ids = torch.nonzero(labels.eq(-1).eq(False)).squeeze(-1)
         prediction_scores = prediction_scores[predict_ids]
         labels = labels[predict_ids]
         pred_labels = torch.argmax(prediction_scores, dim=1)
