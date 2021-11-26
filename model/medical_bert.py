@@ -773,15 +773,34 @@ class MedicalBertPretrainingCriterion(nn.Module):
         total_loss = masked_lm_loss + seq_level_loss
         return total_loss
 
-    def correct_predict_num(self, prediction_scores, labels):
+    def correct_predict_num(self, prediction_scores, labels, vocab=None):
         prediction_scores = prediction_scores.reshape(-1, prediction_scores.size(-1))
         labels = labels.reshape(-1)
         predict_ids = torch.nonzero(labels.eq(-1).eq(False)).squeeze(-1)
         prediction_scores = prediction_scores[predict_ids]
         labels = labels[predict_ids]
         pred_labels = torch.argmax(prediction_scores, dim=1)
-        correct_num = pred_labels.eq(labels).sum().item()
-        total_num = pred_labels.size(0)
-        return correct_num, total_num
+
+        if vocab is not None:
+            correct_num = pred_labels.eq(labels).sum().item()
+            total_num = pred_labels.size(0)
+            accuracy_stat = {"OVERALL predict_accuracy": {"correct_num": correct_num, "total_num": total_num}}
+            for pred, label in list(zip(pred_labels.tolist(), labels.tolist())):
+                typ = vocab.idx2type[label]
+                typ_key = "{} predict_accuracy".format(typ)
+                if not typ_key in accuracy_stat.keys():
+                    if pred == label:
+                        accuracy_stat[typ_key] = {"correct_num": 1, "total_num": 1}
+                    else:
+                        accuracy_stat[typ_key] = {"correct_num": 0, "total_num": 1}
+                else:
+                    if pred == label:
+                        accuracy_stat[typ_key]["correct_num"] += 1
+                    accuracy_stat[typ_key]["total_num"] += 1
+            return accuracy_stat
+        else:
+            correct_num = pred_labels.eq(labels).sum().item()
+            total_num = pred_labels.size(0)
+            return {"OVERALL predict_accuracy": {"correct_num": correct_num, "total_num": total_num}}
 
 

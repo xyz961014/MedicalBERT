@@ -52,11 +52,12 @@ def format_metric(metric, metadata, value):
                 "predict_accuracy": "{:5.5f}"
                        }
         value_map = {"predict_accuracy": lambda x: x * 100}
-        unit_table = {"predict_accuracy": "%"}
+        unit_table = {"predict_accuracy": "%\n"}
 
-        value = value_map[metric](value) if metric in value_map.keys() else value
-        unit = unit_table[metric] if metric in unit_table.keys() else ""
-        format_str = format_table[metric] if metric in format_table.keys() else "{}"
+        metric_name = metric.split()[-1]
+        value = value_map[metric_name](value) if metric_name in value_map.keys() else value
+        unit = unit_table[metric_name] if metric_name in unit_table.keys() else ""
+        format_str = format_table[metric_name] if metric_name in format_table.keys() else "{}"
     output_str = "{} : {} {}".format(metric, format_str.format(value) if value is not None else value, unit)
     return output_str
 

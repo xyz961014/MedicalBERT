@@ -6,6 +6,7 @@ import json
 import csv
 import time
 import random
+import dill
 import h5py
 import socket
 from tqdm import tqdm
@@ -48,6 +49,10 @@ def parse_args():
                         type=str,
                         required=True,
                         help="The MEDICALBERT model config")
+    parser.add_argument("--vocab_file",
+                        default="",
+                        type=str,
+                        help="The MEDICALBERT vocabulary file")
     parser.add_argument("--output_dir",
                         default=None,
                         type=str,
@@ -189,6 +194,14 @@ def main(args):
 
     dllogger.log(step="PARAMETER", data={"Config": json.dumps(args.__dict__, indent=4)})
 
+    # setup vocab
+    # vocab is not necessary for training, but it is useful to 
+    # observe predicting accuracy for different type of tokens
+    if args.vocab_file:
+        vocab = dill.load(open(args.vocab_file, "rb"))
+    else:
+        vocab = None
+
     # get model config
     config = MedicalBertConfig.from_json_file(args.config_file)
 
@@ -268,8 +281,7 @@ def main(args):
     average_loss = 0.0  # averaged loss every args.log_freq steps
     epoch = 0
     training_steps = 0
-    period_correct_num = 0
-    period_total_num = 0
+    accuracy_stat = {}
 
     # get data
     #restored_dataloader = None
@@ -342,9 +354,15 @@ def main(args):
             # compute loss
             loss = criterion(pred_scores, seq_level_score, masked_lm_labels, seq_level_labels)
 
-            batch_correct_num, batch_total_num = criterion.correct_predict_num(pred_scores, masked_lm_labels)
-            period_correct_num += batch_correct_num
-            period_total_num += batch_total_num
+            # compute accuracy
+            batch_accuracy_stat = criterion.correct_predict_num(pred_scores, masked_lm_labels,
+                                                                vocab=vocab)
+            for key, stat in batch_accuracy_stat.items():
+                if not key in accuracy_stat.keys():
+                    accuracy_stat[key] = stat
+                else:
+                    for item_key, item_value in stat.items():
+                        accuracy_stat[key][item_key] += item_value
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
@@ -393,12 +411,14 @@ def main(args):
                         ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
                         os.remove(ckpt_to_be_removed)
 
-                    if period_total_num > 0:
-                        predict_accuracy = period_correct_num / period_total_num
-                    else:
-                        predict_accuracy = 0.
+                    predict_accuracy = {}
+                    for key, stat in accuracy_stat.items():
+                        if stat["total_num"] > 0:
+                            predict_accuracy[key] = stat["correct_num"] / stat["total_num"]
+                        else:
+                            predict_accuracy[key] = 0.
                     dllogger.log(step=(epoch, global_step, ),
-                                 data={"predict_accuracy": predict_accuracy})
+                                 data=predict_accuracy)
                     period_correct_num = 0
                     period_total_num = 0
 
