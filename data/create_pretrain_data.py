@@ -167,7 +167,7 @@ def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
             segment_ids.append(0)
 
         if args.seq_level_task == "NAP":
-            if len(admission) == 1 or adm_id == len(admission) - 1 or rng.random() < 0.5:
+            if len(admission) == 1 or adm_id == len(subject_data) - 1 or rng.random() < 0.5:
                 # random pick next admission from dataset
                 seq_level_label = False
 
