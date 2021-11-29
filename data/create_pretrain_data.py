@@ -162,7 +162,6 @@ def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
         tokens = [vocab.word2idx["<CLS>"]]
         segment_ids = [0]
 
-        ipdb.set_trace()
         for token in admission:
             tokens.append(token)
             segment_ids.append(0)
