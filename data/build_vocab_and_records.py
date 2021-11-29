@@ -201,7 +201,7 @@ def build_pretrain_vocab(args, df):
     
     # add special tokens
     vocab.add_words(special_tokens, typ="SPECIAL")
-    vocab.add_words(value_special_tokens, typ="VALUE")
+    vocab.add_words(value_special_tokens, typ="FLAG")
     # add type tokens
     vocab.add_words(type_tokens, typ="TYPE")
     # add bucket value tokens
