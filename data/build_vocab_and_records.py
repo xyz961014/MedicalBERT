@@ -353,7 +353,7 @@ def build_pretrain_data(args, vocab, df):
             if "FLAG" in row.keys():
                 if pd.notna(row["FLAG"]):
                     flag_token = "<{}>".format(row["FLAG"].upper())
-                print_token(flag_token)
+                    print_token(flag_token)
 
     subjects = list(df["SUBJECT_ID"].unique())
     for subject_id in tqdm(subjects, desc="build data"):
