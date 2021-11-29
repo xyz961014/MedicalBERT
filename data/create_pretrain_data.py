@@ -40,6 +40,12 @@ def parse_args():
                         type=str,
                         required=True,
                         help="The output name prefix where the processed pretrain data will be written.")
+    parser.add_argument("--seq_level_task",
+                        default=None,
+                        type=str,
+                        help="The sequence level task to choose, choices: "
+                             "NAP: next admission prediction "
+                             "AOP: admission order prediction")
     ## Other parameters
 
     #int 
@@ -145,21 +151,60 @@ def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
         target_seq_length = rng.randint(2, args.max_seq_length)
 
     subject_pretrain_epoch = []
-    for admission in subject_data:
+    for adm_id, admission in enumerate(subject_data):
         # admission level pretrain data
-        tokens = []
-        segment_ids = []
 
+        if args.seq_level_task is not None:
+            seq_level_label = True
+        else:
+            seq_level_label = None
+
+        tokens = [vocab.word2idx["<CLS>"]]
+        segment_ids = [0]
+
+        ipdb.set_trace()
         for token in admission:
             tokens.append(token)
             segment_ids.append(0)
 
+        if args.seq_level_task == "NAP":
+            if len(admission) == 1 or rng.random() < 0.5:
+                # random pick next admission from dataset
+                seq_level_label = False
+
+                for _ in range(10):
+                    random_subject_id = rng.randint(0, len(all_subjects) - 1)
+                    if random_subject_id != subject_id:
+                        break
+
+                # in case picked random admission is from the same subject
+                if random_subject_id == subject_id:
+                    seq_level_label = True
+
+                random_subject_data = all_subjects[random_subject_id]
+                random_adm_id = rng.randint(0, len(random_subject_data) - 1)
+                random_admission = random_subject_data[random_adm_id]
+
+                for token in random_admission:
+                    tokens.append(token)
+                    segment_ids.append(1)
+            else:
+                # exact next admission
+                seq_level_label = True
+                for token in subject_data[adm_id + 1]:
+                    tokens.append(token)
+                    segment_ids.append(1)
+            pass
+        elif args.seq_level_task == "AOP":
+            pass
+
         truncate_tokens(args, tokens, segment_ids)
         assert len(tokens) <= args.max_seq_length
+        assert len(segment_ids) <= args.max_seq_length
 
         tokens, masked_lm_positions, masked_lm_labels = create_masked_lm_predictions(args, tokens, vocab, rng)
 
-        instance = TrainingInstance(tokens, segment_ids, masked_lm_positions, masked_lm_labels)
+        instance = TrainingInstance(tokens, segment_ids, masked_lm_positions, masked_lm_labels, seq_level_label)
         subject_pretrain_epoch.append(instance)
 
     return subject_pretrain_epoch

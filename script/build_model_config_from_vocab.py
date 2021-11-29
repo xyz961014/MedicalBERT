@@ -48,7 +48,7 @@ def main(args):
     vocab = dill.load(open(args.vocab_file, "rb"))
 
     vocab_size = vocab.vocab_size
-    type_vocab_size = len(set(vocab.idx2type.values()))
+    type_vocab_size = args.max_position_embeddings
 
     config_json = {
               "attention_probs_dropout_prob": args.attention_probs_dropout_prob,

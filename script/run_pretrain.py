@@ -32,7 +32,7 @@ sys.path.append(os.path.join(curr_path, "..", "data"))
 from model import MedicalBertForPreTraining, MedicalBertConfig
 from model import MedicalBertPretrainingCriterion
 from module import PolyWarmUpScheduler
-from data import MedicalPretrainingDataset
+from data import MedicalPretrainingDataset, PretrainVocab
 from utils import is_main_process, get_world_size, get_rank, format_step, format_metric
 
 def parse_args():

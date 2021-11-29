@@ -360,8 +360,8 @@ def build_pretrain_data(args, vocab, df):
         subject_df = df[df["SUBJECT_ID"] == subject_id]
         # add potential static data here 
         admissions = list(subject_df["HADM_ID"].unique())
-        print_tokens(["<CLS>", "<ADMISSION>"])
         for adm_id in admissions:
+            print_token("<ADMISSION>")
             adm_df = subject_df[subject_df["HADM_ID"] == adm_id]
             # and add potential static data here 
             adm_df_wo_time = adm_df[pd.isna(adm_df["DATETIME"])]
