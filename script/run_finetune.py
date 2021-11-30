@@ -72,6 +72,10 @@ def parse_args():
                         type=str,
                         required=True,
                         help="The MEDICALBERT model config")
+    parser.add_argument("--pretrained_model_ckpt",
+                        default=None,
+                        type=str,
+                        help="The MEDICALBERT model ckpt if given, do not use the final model")
     parser.add_argument('--vocab_file',
                         type=str,
                         default=None,
@@ -350,8 +354,14 @@ def main(args):
     dllogger.log(step="PARAMETER", data={"Model Config": config.to_json_string()})
 
     # prepare pretrained model
+    if args.pretrained_model_ckpt:
+        ckpt_file = os.path.join(args.pretrained_model_path, args.pretrained_model_ckpt)
+        state_dict = torch.load(ckpt_file, map_location="cpu")["model"]
+    else:
+        state_dict = None
     model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
                                                                  config=config,
+                                                                 state_dict=state_dict,
                                                                  num_labels=num_labels)
 
     # load checkpoint if needed
