@@ -409,7 +409,7 @@ def main(args):
                     most_recent_ckpts_paths.append(output_save_file)
                     if len(most_recent_ckpts_paths) > 5:
                         ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
-                        os.remove(ckpt_to_be_removed)
+                        #os.remove(ckpt_to_be_removed)
 
                     predict_accuracy = {}
                     for key, stat in accuracy_stat.items():
