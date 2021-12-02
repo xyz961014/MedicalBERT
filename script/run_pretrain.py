@@ -363,6 +363,15 @@ def main(args):
                 else:
                     for item_key, item_value in stat.items():
                         accuracy_stat[key][item_key] += item_value
+            if args.seq_level_task:
+                batch_seq_level_stat = criterion.correct_predict_num(seq_level_score, seq_level_labels)
+                stat = batch_seq_level_stat["OVERALL predict_accuracy"]
+                seq_key = "Sequence Level Task predict_accuracy"
+                if not seq_key in accuracy_stat.keys():
+                    accuracy_stat[seq_key] = stat
+                else:
+                    for item_key, item_value in stat.items():
+                        accuracy_stat[seq_key][item_key] += item_value
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
