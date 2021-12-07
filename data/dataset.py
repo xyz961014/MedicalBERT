@@ -52,6 +52,7 @@ class MedicalRecommendationDataset(object):
     def __init__(self, data_dir, data_file, vocab, train_set_ratio=2/3):
 
         self.data_dir = data_dir
+        self.data_file = data_file
         self.data = dill.load(open(os.path.join(data_dir, data_file), "rb"))
         self.vocab = vocab
 
@@ -102,9 +103,18 @@ class MedicalRecommendationDataset(object):
 
     def get_extra_data(self, model_name):
         if model_name == "GAMENet":
-            ehr_adj = dill.load(open(os.path.join(self.data_dir, "ehr_adj_final.pkl"), "rb"))
-            ddi_adj = dill.load(open(os.path.join(self.data_dir, "ddi_A_final.pkl"), "rb"))
+            if "_" in self.data_file:
+                data_prefix = "{}_".format(self.data_file.split("_")[0])
+            else:
+                data_prefix = ""
+            ehr_adj = dill.load(open(os.path.join(self.data_dir, "{}ehr_adj_final.pkl".format(data_prefix)), "rb"))
+            ddi_adj = dill.load(open(os.path.join(self.data_dir, "{}ddi_A_final.pkl".format(data_prefix)), "rb"))
             return ehr_adj, ddi_adj
+        if model_name == "SafeDrug":
+            ddi_adj = dill.load(open(os.path.join(self.data_dir, "ddi_A_final_safedrug.pkl"), "rb"))
+            ddi_mask_H = dill.load(open(os.path.join(self.data_dir, "ddi_mask_H_safedrug.pkl"), 'rb'))
+            molecule = dill.load(open(os.path.join(self.data_dir, "idx2SMILES_safedrug.pkl"), 'rb')) 
+            return ddi_adj, ddi_mask_H, molecule
 
 
 class MedicalRecommendationDataloader(object):
@@ -132,7 +142,7 @@ class MedicalRecommendationDataloader(object):
         if evaluate:
             self.shuffle = False
 
-        if model_name == "Leap":
+        if model_name in ["Leap", "DMNC"]:
             self.END_TOKEN = self.med_vocab_size + 1
         elif model_name in ["MLP", "Transformer"]:
             if history:
@@ -183,7 +193,7 @@ class MedicalRecommendationDataloader(object):
                         meds = [self.vocab.intra_type_index["MED-ATC"][m] for m in meds]
                     y_target[meds] = 1
 
-                if self.model_name == "GAMENet":
+                if self.model_name in ["GAMENet", "SafeDrug"]:
                     seq_inputs = patient[:idx+1]
                     loss1_target = np.zeros((1, self.med_vocab_size))
                     loss1_target[:, admission[2]] = 1
@@ -194,7 +204,7 @@ class MedicalRecommendationDataloader(object):
                         yield seq_inputs, y_target
                     else:
                         yield seq_inputs, loss1_target, loss3_target
-                elif self.model_name == "Leap":
+                elif self.model_name in ["Leap", "DMNC"]:
                     if self.evaluate:
                         yield admission, y_target
                     else:

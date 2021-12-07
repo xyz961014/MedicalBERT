@@ -15,10 +15,11 @@ curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
 sys.path.append(os.path.join(curr_path, "..", "data"))
 
-from models import GAMENet, Leap, MLP, DualMLP, Transformer, DualTransformer
+from models import GAMENet, Leap, DMNC, MLP, DualMLP, Transformer, DualTransformer, SafeDrugModel
 from data.dataset import MedicalRecommendationDataset
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
+from utils import buildMPNN
 
 curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
@@ -26,7 +27,8 @@ from data.build_vocab_and_records import Vocab
 
 import ipdb
 
-BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", "Transformer", "DualTransformer"]
+BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", 
+                   "Transformer", "DualTransformer", "SafeDrug", "DMNC"]
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -61,6 +63,8 @@ def parse_args():
                         help="using ddi for GAMENet")
     parser.add_argument("--target_ddi", type=float, default=0.05,
                         help="target ddi for GAMENet")
+    parser.add_argument('--kp', type=float, default=0.05, 
+                        help='coefficient of P signal')
     parser.add_argument("--temperature_initial", type=float, default=0.5,
                         help="initial temperature for GAMENet")
     parser.add_argument("--temperature_decay", type=float, default=0.85,
@@ -112,6 +116,8 @@ def main(args):
         case_study = defaultdict(dict)
         med_count = 0
         visit_count = 0
+        if args.model_name == "DMNC":
+            i1_state, i2_state, i3_state = None, None, None
         # TODO: this is a temp solution, dataloader should be rewritten
         #evalloader = [data for data in evalloader if len(data) > 1]
         #for step, inputs in enumerate(evalloader):
@@ -151,6 +157,28 @@ def main(args):
                 y_pred_tmp = np.zeros(vocab_size[2])
                 y_pred_tmp[out_list] = 1
                 y_pred = y_pred_tmp
+            elif args.model_name == "DMNC":
+                admission, y_target = data
+                output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
+                output_logits = output_logits.detach().cpu().numpy()
+                out_list, sorted_predict = sequence_output_process(output_logits, [vocab_size[2], vocab_size[2] + 1])
+                y_pred_label = sorted(sorted_predict)
+                y_pred_prob = np.mean(output_logits[:, : -2], axis=0)
+                y_pred_tmp = np.zeros(vocab_size[2])
+                y_pred_tmp[out_list] = 1
+                y_pred = y_pred_tmp
+                pass
+            elif args.model_name == "SafeDrug":
+                seq_inputs, y_target = data
+                target_output1, _ = model(seq_inputs)
+                target_output1 = torch.sigmoid(target_output1).detach().cpu().numpy()[0]
+                y_pred_prob = target_output1
+                y_pred_tmp = target_output1.copy()
+                y_pred_tmp[y_pred_tmp>=0.5] = 1
+                y_pred_tmp[y_pred_tmp<0.5] = 0
+                y_pred = y_pred_tmp
+                y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+                y_pred_label = sorted(y_pred_label_tmp)
             elif args.model_name == "Nearest":
                 pred_list, y_target = data
                 y_pred_label = sorted(pred_list)
@@ -225,6 +253,8 @@ def main(args):
         if args.model_name == "GAMENet":
             prediction_loss_count = 0
             neg_loss_count = 0
+        elif args.model_name == "DMNC":
+            i1_state, i2_state, i3_state = None, None, None
         #for step, inputs in enumerate(data_train):
         #    for idx, adm in enumerate(inputs):
         #        # process data
@@ -272,6 +302,32 @@ def main(args):
                 output_logits = model(admission)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
+            elif args.model_name == "DMNC":
+                admission, loss_target = data
+                output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
+                loss = F.cross_entropy(output_logits, 
+                                       torch.LongTensor(loss_target).to(device))
+                pass
+            elif args.model_name == "SafeDrug":
+                seq_inputs, loss1_target, loss3_target = data
+                target_output1, loss_ddi = model(seq_inputs)
+                loss1 = F.binary_cross_entropy_with_logits(target_output1, 
+                                                           torch.FloatTensor(loss1_target).to(device))
+                loss3 = F.multilabel_margin_loss(torch.sigmoid(target_output1), 
+                                                 torch.LongTensor(loss3_target).to(device))
+
+                target_output1 = torch.sigmoid(target_output1).detach().cpu().numpy()[0]
+                target_output1[target_output1 >= 0.5] = 1
+                target_output1[target_output1 < 0.5] = 0
+                y_label = np.where(target_output1 == 1)[0]
+                current_ddi_rate = ddi_rate_score([[y_label]], 
+                                                  path=os.path.join(args.data_dir, "ddi_A_final.pkl"))
+                
+                if current_ddi_rate <= args.target_ddi:
+                    loss = args.alpha_bce * loss1 + args.alpha_margin * loss3 + loss_ddi
+                else:
+                    beta = min(0, 1 + (args.target_ddi - current_ddi_rate) / args.kp)
+                    loss = beta * (args.alpha_bce * loss1 + args.alpha_margin * loss3) + (1 - beta) * loss_ddi
             elif args.model_name in ["MLP", "DualMLP", "Transformer", "DualTransformer"]:
                 inputs, bce_loss_target, margin_loss_target = data
                 output_target = model(inputs)
@@ -300,6 +356,7 @@ def main(args):
 
 
     # Set random seed
+    torch.autograd.set_detect_anomaly(True)
 
     torch.manual_seed(args.random_seed)
     torch.cuda.manual_seed(args.random_seed)
@@ -350,6 +407,8 @@ def main(args):
 
     if args.model_name == "GAMENet":
         ehr_adj, ddi_adj = dataset.get_extra_data(args.model_name)
+    elif args.model_name == "SafeDrug":
+        ddi_adj, ddi_mask_H, molecule = dataset.get_extra_data(args.model_name)
 
     # Create model
 
@@ -359,6 +418,21 @@ def main(args):
                         ddi_in_memory=args.ddi, 
                         dropout=args.dropout,
                         device=device)
+    elif args.model_name == "SafeDrug":
+        MPNNSet, N_fingerprint, average_projection = buildMPNN(molecule, dataset.med_vocab.idx2word, 2, device)
+        model = SafeDrugModel(dataset.vocab_size,
+                              ddi_adj,
+                              ddi_mask_H,
+                              MPNNSet,
+                              N_fingerprint,
+                              average_projection,
+                              emb_dim=args.emb_dim,
+                              device=device)
+    elif args.model_name == "DMNC":
+        model = DMNC(dataset.vocab_size, 
+                     emb_dim=args.emb_dim,
+                     dropout=args.dropout,
+                     device=device)
     elif args.model_name == "Leap":
         model = Leap(dataset.vocab_size, 
                      emb_dim=args.emb_dim, 
