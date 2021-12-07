@@ -106,6 +106,8 @@ class MedicalRecommendationDataset(object):
         if model_name == "GAMENet":
             if re.match("multi_visit", self.data_file):
                 data_prefix = "multi_visit_"
+            elif re.match("safedrug", self.data_file):
+                data_prefix = "safedrug_"
             else:
                 data_prefix = ""
             ehr_adj = dill.load(open(os.path.join(self.data_dir, "{}ehr_adj_final.pkl".format(data_prefix)), "rb"))
