@@ -76,6 +76,35 @@ def parse_args():
                         type=float,
                         help="Probability to create a sequence shorter than maximum sequence length")
 
+    parser.add_argument("--med_prob",
+                        default=0.15,
+                        type=float,
+                        help="MED token probability.")
+    parser.add_argument("--proc_prob",
+                        default=0.15,
+                        type=float,
+                        help="PROC token probability.")
+    parser.add_argument("--diag_prob",
+                        default=0.15,
+                        type=float,
+                        help="DIAG token probability.")
+    parser.add_argument("--lab_prob",
+                        default=0.15,
+                        type=float,
+                        help="LAB token probability.")
+    parser.add_argument("--value_prob",
+                        default=0.15,
+                        type=float,
+                        help="VALUE token probability.")
+    parser.add_argument("--flag_prob",
+                        default=0.15,
+                        type=float,
+                        help="FLAG token probability.")
+    parser.add_argument("--chart_prob",
+                        default=0.15,
+                        type=float,
+                        help="CHART token probability.")
+
     parser.add_argument('--random_seed',
                         type=int,
                         default=12345,
@@ -108,7 +137,7 @@ class TrainingInstance(object):
     return self.__str__()
 
 
-def create_pretrain_epochs(args, vocab, rng):
+def create_pretrain_epochs(args, vocab, rng, type_probs=None):
 
     assert args.input_file or args.input_id_file
     input_file = args.input_id_file or args.input_file
@@ -134,15 +163,25 @@ def create_pretrain_epochs(args, vocab, rng):
 
     pretrain_epochs = []
     for i in range(args.dupe_factor):
-        pretrain_epoch = []
-        for idx in tqdm(range(len(all_subjects)), desc="duplication {}/{}".format(i + 1, args.dupe_factor)):
-            subject_pretrain_epoch = convert_subject_pretrain_epoch(args, all_subjects, idx, vocab, rng)
-            pretrain_epoch.extend(subject_pretrain_epoch)
-        rng.shuffle(pretrain_epoch)
+        #pretrain_epoch = []
+        #for idx in tqdm(range(len(all_subjects)), desc="duplication {}/{}".format(i + 1, args.dupe_factor)):
+        #    subject_pretrain_epoch = convert_subject_pretrain_epoch(args, all_subjects, idx, vocab, rng)
+        #    pretrain_epoch.extend(subject_pretrain_epoch)
+        #rng.shuffle(pretrain_epoch)
+        pretrain_epoch = create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs, 
+                                               desc="duplication {}/{}".format(i + 1, args.dupe_factor))
         pretrain_epochs.append(pretrain_epoch)
     return pretrain_epochs
 
-def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
+def create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs=None, desc=""):
+    pretrain_epoch = []
+    for idx in tqdm(range(len(all_subjects)), desc=desc):
+        subject_pretrain_epoch = convert_subject_pretrain_epoch(args, all_subjects, idx, vocab, rng, type_probs)
+        pretrain_epoch.extend(subject_pretrain_epoch)
+    rng.shuffle(pretrain_epoch)
+    return pretrain_epoch
+
+def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng, type_probs=None):
     
     subject_data = all_subjects[subject_id]
 
@@ -201,7 +240,8 @@ def convert_subject_pretrain_epoch(args, all_subjects, subject_id, vocab, rng):
         assert len(tokens) <= args.max_seq_length
         assert len(segment_ids) <= args.max_seq_length
 
-        tokens, masked_lm_positions, masked_lm_labels = create_masked_lm_predictions(args, tokens, vocab, rng)
+        tokens, masked_lm_positions, masked_lm_labels = create_masked_lm_predictions(args, tokens, vocab, rng,
+                                                                                     type_probs=type_probs)
 
         instance = TrainingInstance(tokens, segment_ids, masked_lm_positions, masked_lm_labels, seq_level_label)
         subject_pretrain_epoch.append(instance)
@@ -219,46 +259,65 @@ def truncate_tokens(args, tokens, segment_ids):
 
 MaskedLMInstance = collections.namedtuple("MaskedLMInstance", ["index", "label"])
 
-def create_masked_lm_predictions(args, tokens, vocab, rng):
+def create_masked_lm_predictions(args, tokens, vocab, rng, type_probs=None):
     
     vocab_words = list(vocab.word2idx.keys())
 
-    candidate_inds = []
+    types = list(set(vocab.idx2type.values()))
+    types.remove("SPECIAL")
+    types.remove("TYPE")
+    if type_probs is None:
+        type_probs = {t: args.masked_lm_prob for t in types}
+    else:
+        for t in types:
+            if not t in type_probs.keys():
+                type_probs[t] = 0.
+
+
+    candidate_inds = {t: [] for t in type_probs.keys()}
     for ind, token in enumerate(tokens):
-        if not vocab.idx2type[token] in ["SPECIAL", "TYPE"]:
-            candidate_inds.append(ind)
+        t = vocab.idx2type[token]
+        if not t in ["SPECIAL", "TYPE"]:
+            candidate_inds[t].append(ind)
 
-    rng.shuffle(candidate_inds)
+    for t in candidate_inds.keys():
+        rng.shuffle(candidate_inds[t])
 
-    num_to_predict = min(args.max_predictions_per_seq, 
-                         max(1, int(round(len(tokens) * args.masked_lm_prob))))
+    type_num_to_predict = {t: max(1, int(round(len(candidate_inds[t]) * type_probs[t]))) 
+                           for t in type_probs.keys()}
+    for t in type_num_to_predict.keys():
+        if len(candidate_inds[t]) == 0 or type_probs[t] == 0:
+            type_num_to_predict[t] = 0
+    num_to_predict = sum(type_num_to_predict.values())
 
     output_tokens = copy(tokens)
     masked_tokens = []
     covered_inds = set()
-    for ind in candidate_inds:
-        if len(masked_tokens) >= num_to_predict:
-            break
-        if ind in covered_inds:
-            continue
+    for t in type_probs.keys():
+        for i in range(type_num_to_predict[t]):
+            ind = candidate_inds[t][i]
+            if len(masked_tokens) >= num_to_predict:
+                break
+            if ind in covered_inds:
+                continue
 
-        masked_token = None
+            masked_token = None
 
-        if rng.random() < 0.8:
-            # 80% of the time, replace word with <MASK>
-            masked_token = vocab.word2idx["<MASK>"]
-        else:
-            if rng.random() < 0.5:
-                # 10% of the time, do not change
-                masked_token = tokens[ind]
+            if rng.random() < 0.8:
+                # 80% of the time, replace word with <MASK>
+                masked_token = vocab.word2idx["<MASK>"]
             else:
-                # 10% of the time, replace word with random word in same type
-                typ = vocab.idx2type[tokens[ind]]
-                type_word_ids = [i for i in vocab.idx2type.keys() if vocab.idx2type[i] == typ]
-                masked_token = type_word_ids[rng.randint(0, len(type_word_ids) - 1)]
+                if rng.random() < 0.5:
+                    # 10% of the time, do not change
+                    masked_token = tokens[ind]
+                else:
+                    # 10% of the time, replace word with random word in same type
+                    typ = vocab.idx2type[tokens[ind]]
+                    type_word_ids = [i for i in vocab.idx2type.keys() if vocab.idx2type[i] == typ]
+                    masked_token = type_word_ids[rng.randint(0, len(type_word_ids) - 1)]
 
-        masked_tokens.append(MaskedLMInstance(index=ind, label=tokens[ind]))
-        output_tokens[ind] = masked_token
+            masked_tokens.append(MaskedLMInstance(index=ind, label=tokens[ind]))
+            output_tokens[ind] = masked_token
 
     masked_tokens = sorted(masked_tokens, key=lambda x: x.index)
 
@@ -267,6 +326,8 @@ def create_masked_lm_predictions(args, tokens, vocab, rng):
     for masked_token in masked_tokens:
         masked_lm_positions.append(masked_token.index)
         masked_lm_labels.append(masked_token.label)
+
+    #strs = " ".join([vocab.idx2word[i] for i in output_tokens])
 
     return (output_tokens, masked_lm_positions, masked_lm_labels)
 
@@ -364,7 +425,17 @@ def main(args):
 
     rng = random.Random(args.random_seed)
 
-    pretrain_epochs = create_pretrain_epochs(args, vocab, rng)
+    type_probs = {
+            "MED": args.med_prob,
+            "DIAG": args.diag_prob,
+            "PROC": args.proc_prob,
+            "LAB": args.lab_prob,
+            "VALUE": args.value_prob,
+            "FLAG": args.flag_prob,
+            "CHART": args.chart_prob
+                 }
+
+    pretrain_epochs = create_pretrain_epochs(args, vocab, rng, type_probs)
 
     write_epochs_to_file(args, vocab, pretrain_epochs)
 
