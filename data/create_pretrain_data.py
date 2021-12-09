@@ -143,6 +143,17 @@ def create_pretrain_epochs(args, vocab, rng, type_probs=None):
     input_file = args.input_id_file or args.input_file
     print("creating instance from {}".format(input_file))
 
+    all_subjects = get_all_subjects(input_file, vocab, rng, is_id=args.input_id_file is not None)
+
+    pretrain_epochs = []
+    for i in range(args.dupe_factor):
+        pretrain_epoch = create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs, 
+                                               desc="duplication {}/{}".format(i + 1, args.dupe_factor))
+        pretrain_epochs.append(pretrain_epoch)
+    return pretrain_epochs
+
+def get_all_subjects(input_file, vocab, rng, is_id=False):
+
     all_subjects = [[]]
     with open(input_file, "rb") as f_input:
         for line in f_input:
@@ -151,7 +162,7 @@ def create_pretrain_epochs(args, vocab, rng, type_probs=None):
             # Empty lines are used as document delimiters
             if not line:
                 all_subjects.append([])
-            if args.input_id_file:
+            if is_id:
                 tokens = [int(t) for t in line.split()]
             else:
                 tokens = vocab.tokenize(line)
@@ -160,18 +171,7 @@ def create_pretrain_epochs(args, vocab, rng, type_probs=None):
 
     all_subjects = [s for s in all_subjects if s]
     rng.shuffle(all_subjects)
-
-    pretrain_epochs = []
-    for i in range(args.dupe_factor):
-        #pretrain_epoch = []
-        #for idx in tqdm(range(len(all_subjects)), desc="duplication {}/{}".format(i + 1, args.dupe_factor)):
-        #    subject_pretrain_epoch = convert_subject_pretrain_epoch(args, all_subjects, idx, vocab, rng)
-        #    pretrain_epoch.extend(subject_pretrain_epoch)
-        #rng.shuffle(pretrain_epoch)
-        pretrain_epoch = create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs, 
-                                               desc="duplication {}/{}".format(i + 1, args.dupe_factor))
-        pretrain_epochs.append(pretrain_epoch)
-    return pretrain_epochs
+    return all_subjects
 
 def create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs=None, desc=""):
     pretrain_epoch = []
@@ -348,6 +348,8 @@ def write_epochs_to_file(args, vocab, epochs):
     if not os.path.exists(dir_name):
         os.makedirs(dir_name, exist_ok=True)
 
+    filenames = []
+
     for epoch, instances in enumerate(epochs):
         total_written = 0
         features = collections.OrderedDict()
@@ -417,6 +419,10 @@ def write_epochs_to_file(args, vocab, epochs):
         f.create_dataset("seq_level_labels", data=features["seq_level_labels"], dtype='i1', compression='gzip')
         f.flush()
         f.close()
+
+        filenames.append(filename)
+
+    return filenames
 
 
 def main(args):

@@ -9,6 +9,7 @@ import random
 import dill
 import h5py
 import socket
+import shutil
 from tqdm import tqdm
 from copy import copy
 import numpy as np
@@ -33,6 +34,7 @@ from model import MedicalBertForPreTraining, MedicalBertConfig
 from model import MedicalBertPretrainingCriterion
 from module import PolyWarmUpScheduler
 from data import MedicalPretrainingDataset, PretrainVocab
+from data import create_pretrain_epoch, get_all_subjects, write_epochs_to_file
 from utils import is_main_process, get_world_size, get_rank, format_step, format_metric
 
 def parse_args():
@@ -53,21 +55,40 @@ def parse_args():
                         default="",
                         type=str,
                         help="The MEDICALBERT vocabulary file")
+    parser.add_argument("--data_id_file",
+                        default="",
+                        type=str,
+                        help="The data file with id, using for adaptive training")
     parser.add_argument("--output_dir",
                         default=None,
                         type=str,
                         required=True,
                         help="The output directory where the model checkpoints will be written.")
-    #parser.add_argument("--max_seq_length",
-    #                    default=512,
-    #                    type=int,
-    #                    help="The maximum total input sequence length \n"
-    #                         "Sequences longer than this will be truncated, \n"
-    #                         "and sequences shorter than this will be padded.")
-    #parser.add_argument("--max_predictions_per_seq",
-    #                    default=80,
-    #                    type=int,
-    #                    help="The maximum total of masked tokens in input sequence")
+
+    # adaptive training
+    parser.add_argument("--adaptive_train",
+                        default=False,
+                        action="store_true",
+                        help="adaptive training")
+    parser.add_argument("--max_seq_length",
+                        default=512,
+                        type=int,
+                        help="The maximum total input sequence length \n"
+                             "Sequences longer than this will be truncated, \n"
+                             "and sequences shorter than this will be padded.")
+    parser.add_argument("--max_predictions_per_seq",
+                        default=80,
+                        type=int,
+                        help="The maximum total of masked tokens in input sequence")
+    parser.add_argument("--masked_lm_prob",
+                        default=0.15,
+                        type=float,
+                        help="Masked LM probability.")
+    parser.add_argument("--short_seq_prob",
+                        default=0.1,
+                        type=float,
+                        help="Probability to create a sequence shorter than maximum sequence length")
+
     parser.add_argument("--seq_level_task",
                         default=False,
                         action="store_true",
@@ -282,6 +303,7 @@ def main(args):
     epoch = 0
     training_steps = 0
     accuracy_stat = {}
+    predict_accuracy = None
 
     # get data
     #restored_dataloader = None
@@ -298,46 +320,96 @@ def main(args):
     #                                  pin_memory=True)
     #else:
     #    train_dataloader = restored_dataloader
+    if args.adaptive_train:
+        mask_probs = {
+                "MED": args.masked_lm_prob,
+                "DIAG": args.masked_lm_prob,
+                "PROC": args.masked_lm_prob,
+                "LAB": args.masked_lm_prob,
+                "VALUE": args.masked_lm_prob,
+                "FLAG": args.masked_lm_prob,
+                "CHART": args.masked_lm_prob,
+                     }
+        rng = random.Random(args.seed)
+        all_subjects = get_all_subjects(args.data_id_file, vocab, rng, is_id=True)
+        adaptive_data_dir = os.path.join(args.output_dir, "adaptive_data")
+        if os.path.exists(adaptive_data_dir):
+            shutil.rmtree(adaptive_data_dir)
+        os.makedirs(adaptive_data_dir, exist_ok=True)
+        # add args for save
+        args.save = os.path.join(adaptive_data_dir, "adaptive_data")
+        args.random_seed = args.seed
 
     
     while True:
 
         # get data of the epoch
-        restored_dataloader = None
-        if not args.resume_from_checkpoint or epoch > 0:
-            # not the first epoch of resuming or training from init
-            files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir)]
-            files.sort()
-            num_files = len(files)
-            random.Random(args.seed + epoch).shuffle(files)
-        else:
-            # first epoch of resume training 
-            files = checkpoint["files"]
-            num_files = len(files)
-            args.resume_from_checkpoint = False
-            epoch = checkpoint.get("epoch", 0)
-            restored_dataloader = checkpoint.get("dataloader", None)
-        
-        # choose file in this epoch
-        if args.distributed:
-            select_id = (get_rank() + epoch * get_world_size()) % num_files 
-        else:
-            select_id = epoch % num_files 
+        predict_accuracy = {'DIAG predict_accuracy': 0.0,
+                'FLAG predict_accuracy': 0.5781893004115226,
+                'LAB predict_accuracy': 0.0,
+                'MED predict_accuracy': 0.0,
+                'OVERALL predict_accuracy': 0.08102652825836217,
+                'PROC predict_accuracy': 0.0,
+                'Sequence Level Task predict_accuracy': 1.0,
+                'VALUE predict_accuracy': 0.0
+                }
+        if args.adaptive_train:
+            if predict_accuracy is not None:
+                accuracy_key_dicts = {key.split()[0]: key for key in predict_accuracy.keys()}
+                for key in mask_probs:
+                    if key in accuracy_key_dicts.keys():
+                        accuracy = predict_accuracy[accuracy_key_dicts[key]]
+                        mask_probs[key] = (1 - accuracy) * args.masked_lm_prob
+            print(json.dumps(mask_probs, indent=4))
+            epoch_data = create_pretrain_epoch(args, all_subjects, vocab, rng, mask_probs, 
+                                               desc="create epoch {} data".format(epoch))
+            args.dupe_factor = epoch
+            filenames = write_epochs_to_file(args, vocab, [epoch_data])
 
-        data_file = files[select_id]
-
-        if restored_dataloader is None:
-            print("Device {}: Load Data {}".format(get_rank(), os.path.split(data_file)[-1]))
-            train_dataset = MedicalPretrainingDataset(data_file)
+            train_dataset = MedicalPretrainingDataset(filenames[0])
             train_sampler = RandomSampler(train_dataset)
             train_dataloader = DataLoader(train_dataset, 
                                           sampler=train_sampler,
                                           batch_size=args.train_batch_size * len(args.devices),
                                           num_workers=4, 
                                           pin_memory=True)
+
         else:
-            print("Restore Data on Device {}".format(get_rank()))
-            train_dataloader = restored_dataloader
+            restored_dataloader = None
+            if not args.resume_from_checkpoint or epoch > 0:
+                # not the first epoch of resuming or training from init
+                files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir)]
+                files.sort()
+                num_files = len(files)
+                random.Random(args.seed + epoch).shuffle(files)
+            else:
+                # first epoch of resume training 
+                files = checkpoint["files"]
+                num_files = len(files)
+                args.resume_from_checkpoint = False
+                epoch = checkpoint.get("epoch", 0)
+                restored_dataloader = checkpoint.get("dataloader", None)
+            
+            # choose file in this epoch
+            if args.distributed:
+                select_id = (get_rank() + epoch * get_world_size()) % num_files 
+            else:
+                select_id = epoch % num_files 
+
+            data_file = files[select_id]
+
+            if restored_dataloader is None:
+                print("Device {}: Load Data {}".format(get_rank(), os.path.split(data_file)[-1]))
+                train_dataset = MedicalPretrainingDataset(data_file)
+                train_sampler = RandomSampler(train_dataset)
+                train_dataloader = DataLoader(train_dataset, 
+                                              sampler=train_sampler,
+                                              batch_size=args.train_batch_size * len(args.devices),
+                                              num_workers=4, 
+                                              pin_memory=True)
+            else:
+                print("Restore Data on Device {}".format(get_rank()))
+                train_dataloader = restored_dataloader
 
         train_iter = tqdm(train_dataloader, 
                           desc="Epoch {}".format(epoch + 1)) if is_main_process() else train_dataloader
@@ -410,7 +482,7 @@ def main(args):
                     output_save_file = os.path.join(args.output_dir, "ckpt_{}.pt".format(global_step))
                     torch.save({'model': model_to_save.state_dict(),
                                 'optimizer': optimizer.state_dict(),
-                                'files': files,
+                                'files': files if not args.adaptive_train else None,
                                 'epoch': epoch,
                                 'data_loader': None if global_step >= args.max_steps else train_dataloader}, 
                                 output_save_file)
