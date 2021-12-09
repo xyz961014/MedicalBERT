@@ -344,15 +344,6 @@ def main(args):
     while True:
 
         # get data of the epoch
-        predict_accuracy = {'DIAG predict_accuracy': 0.0,
-                'FLAG predict_accuracy': 0.5781893004115226,
-                'LAB predict_accuracy': 0.0,
-                'MED predict_accuracy': 0.0,
-                'OVERALL predict_accuracy': 0.08102652825836217,
-                'PROC predict_accuracy': 0.0,
-                'Sequence Level Task predict_accuracy': 1.0,
-                'VALUE predict_accuracy': 0.0
-                }
         if args.adaptive_train:
             if predict_accuracy is not None:
                 accuracy_key_dicts = {key.split()[0]: key for key in predict_accuracy.keys()}
