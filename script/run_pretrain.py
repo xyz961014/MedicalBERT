@@ -351,10 +351,11 @@ def main(args):
                     if key in accuracy_key_dicts.keys():
                         accuracy = predict_accuracy[accuracy_key_dicts[key]]
                         mask_probs[key] = (1 - accuracy) * args.masked_lm_prob
-            print(json.dumps(mask_probs, indent=4))
+            if is_main_process():
+                print(json.dumps(mask_probs, indent=4))
             epoch_data = create_pretrain_epoch(args, all_subjects, vocab, rng, mask_probs, 
                                                desc="create epoch {} data".format(epoch))
-            args.dupe_factor = epoch
+            args.dupe_factor = "{}{}".format(epoch, get_rank())
             filenames = write_epochs_to_file(args, vocab, [epoch_data])
 
             train_dataset = MedicalPretrainingDataset(filenames[0])
