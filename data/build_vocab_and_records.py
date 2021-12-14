@@ -32,6 +32,10 @@ def parse_args():
                         help="number of buckets per item")
     parser.add_argument("--save", type=str, default="final",
                         help="filename of saving vocabulary and records")
+    parser.add_argument("--no_value_num", action="store_true",
+                        help="only keep the value range of the value")
+    parser.add_argument("--no_value", action="store_true",
+                        help="do not keep the value")
     return parser.parse_args()
 
 class Vocab(object):
@@ -223,8 +227,9 @@ def build_pretrain_vocab(args, df):
         for item_id in list(df["ITEMID"].dropna().unique()):
             item_df = df[df["ITEMID"] == item_id]
             typ = list(item_df["TYPE"].unique())[0]
-            bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
-            vocab.add_item_values(item_id, typ=typ, values=bucket_values)
+            if "BUCKET_VALUE" in item_df.columns:
+                bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
+                vocab.add_item_values(item_id, typ=typ, values=bucket_values)
     # get detail from original csv table
     vocab.get_detail(args.data_dir)
 
@@ -437,7 +442,10 @@ def build_buckets(args):
 
             for i in range(len(boundary_index) - 1):
                 bucket_index = item_df[boundary_index[i]:boundary_index[i+1]].index
-                bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
+                if args.no_value_num:
+                    bucket_value = "<RANGE{}>".format(i)
+                else:
+                    bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
                 df.loc[bucket_index, "BUCKET_VALUE"] = bucket_value
 
         print("build buckets complete")
@@ -514,11 +522,15 @@ if __name__ == "__main__":
     args = parse_args()
     if args.pretrain:
         # build buckets
-        if os.path.exists("{}_data_with_bucket_value.pkl".format(args.save)):
-            print("data with bucket value already exists, loading existing file")
-            bucket_df = pd.read_pickle("{}_data_with_bucket_value.pkl".format(args.save))
+        if args.no_value:
+            bucket_df = pd.read_pickle(args.data_path)
+            print("do not use value, skip building buckets")
         else:
-            bucket_df = build_buckets(args)
+            if os.path.exists("{}_data_with_bucket_value.pkl".format(args.save)):
+                print("data with bucket value already exists, loading existing file")
+                bucket_df = pd.read_pickle("{}_data_with_bucket_value.pkl".format(args.save))
+            else:
+                bucket_df = build_buckets(args)
         # build vocab
         if os.path.exists("{}_vocab.pkl".format(args.save)):
             print("vocab already exists, loading existing file")
