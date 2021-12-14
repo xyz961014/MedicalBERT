@@ -195,6 +195,9 @@ def parse_args():
     parser.add_argument('--fix_model', 
                         action='store_true',
                         help="fix model parameter")
+    parser.add_argument('--from_scratch', 
+                        action='store_true',
+                        help="do not load pretrained parameter")
 
     return parser.parse_args()
 
@@ -366,15 +369,19 @@ def main(args):
     dllogger.log(step="PARAMETER", data={"Model Config": config.to_json_string()})
 
     # prepare pretrained model
-    if args.pretrained_model_ckpt:
+    if args.pretrained_model_path and args.pretrained_model_ckpt:
         ckpt_file = os.path.join(args.pretrained_model_path, args.pretrained_model_ckpt)
         state_dict = torch.load(ckpt_file, map_location="cpu")["model"]
     else:
         state_dict = None
-    model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
-                                                                 config=config,
-                                                                 state_dict=state_dict,
-                                                                 num_labels=num_labels)
+
+    if not args.from_scratch:
+        model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
+                                                                     config=config,
+                                                                     state_dict=state_dict,
+                                                                     num_labels=num_labels)
+    else:
+        model = MedicalBertForSequenceClassification(config, num_labels=num_labels)
 
     # load checkpoint if needed
     checkpoint = None
