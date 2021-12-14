@@ -393,7 +393,7 @@ def build_pretrain_data(args, vocab, df):
                     last_date = current_date
                 for df_type in df_types:
                     datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
-                    if df_type in vocab.type_with_value:
+                    if df_type in vocab.type_with_value and "BUCKET_VALUE" in datetime_type_df.columns:
                         datetime_type_df = datetime_type_df[pd.notna(datetime_type_df["BUCKET_VALUE"])]
                     print_token("<{}>".format(df_type))
                     print_df(datetime_type_df)
