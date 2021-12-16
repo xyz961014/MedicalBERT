@@ -46,6 +46,10 @@ def parse_args():
                         type=str,
                         required=True,
                         help="The input data dir. Should contain .hdf5 files for the task.")
+    parser.add_argument("--valid_data_dir",
+                        default=None,
+                        type=str,
+                        help="The validation data dir. Should contain .hdf5 files for the task.")
     parser.add_argument("--config_file",
                         default=None,
                         type=str,
@@ -316,7 +320,6 @@ def main(args):
     #    train_dataloader = DataLoader(train_dataset, 
     #                                  sampler=train_sampler,
     #                                  batch_size=args.train_batch_size * len(args.devices),
-    #                                  num_workers=4, 
     #                                  pin_memory=True)
     #else:
     #    train_dataloader = restored_dataloader
@@ -340,6 +343,14 @@ def main(args):
         args.save = os.path.join(adaptive_data_dir, "adaptive_data")
         args.random_seed = args.seed
 
+    if args.valid_data_dir is not None:
+        valid_file = os.path.join(args.valid_data_dir, os.listdir(args.valid_data_dir)[0])
+        valid_dataset = MedicalPretrainingDataset(valid_file)
+        valid_sampler = SequentialSampler(valid_dataset)
+        valid_dataloader = DataLoader(valid_dataset,
+                                      sampler=valid_sampler,
+                                      batch_size=1,
+                                      pin_memory=True)
     
     while True:
 
@@ -363,7 +374,6 @@ def main(args):
             train_dataloader = DataLoader(train_dataset, 
                                           sampler=train_sampler,
                                           batch_size=args.train_batch_size * len(args.devices),
-                                          num_workers=4, 
                                           pin_memory=True)
 
         else:
@@ -397,7 +407,6 @@ def main(args):
                 train_dataloader = DataLoader(train_dataset, 
                                               sampler=train_sampler,
                                               batch_size=args.train_batch_size * len(args.devices),
-                                              num_workers=4, 
                                               pin_memory=True)
             else:
                 print("Restore Data on Device {}".format(get_rank()))
@@ -484,16 +493,63 @@ def main(args):
                         ckpt_to_be_removed = most_recent_ckpts_paths.pop(0)
                         #os.remove(ckpt_to_be_removed)
 
+                    # compute train accuracy
                     predict_accuracy = {}
                     for key, stat in accuracy_stat.items():
                         if stat["total_num"] > 0:
                             predict_accuracy[key] = stat["correct_num"] / stat["total_num"]
                         else:
                             predict_accuracy[key] = 0.
+                    dllogger.log(step="PARAMETER", data={"eval_on_train": global_step})
                     dllogger.log(step=(epoch, global_step, ),
                                  data=predict_accuracy)
-                    period_correct_num = 0
-                    period_total_num = 0
+                    accuracy_stat = {}
+
+                    # compute validation accuracy
+                    if args.valid_data_dir:
+                        model.eval()
+                        valid_iter = tqdm(valid_dataloader, 
+                                          desc="Step {} Eval on validation set".format(global_step))
+                        valid_accuracy_stat = {}
+                        for batch in valid_iter:
+                            
+                            # get data and put data in device
+                            batch = [t.to(device) for t in batch]
+                            input_ids, segment_ids, input_mask, masked_lm_labels, seq_level_labels = batch
+                            
+                            # use model to predict
+                            pred_scores, seq_level_score = model(input_ids=input_ids,
+                                                                 token_type_ids=segment_ids,
+                                                                 attention_mask=input_mask)
+                            # compute accuracy
+                            batch_valid_accuracy_stat = criterion.correct_predict_num(pred_scores, masked_lm_labels,
+                                                                                      vocab=vocab)
+                            for key, stat in batch_valid_accuracy_stat.items():
+                                if not key in valid_accuracy_stat.keys():
+                                    valid_accuracy_stat[key] = stat
+                                else:
+                                    for item_key, item_value in stat.items():
+                                        valid_accuracy_stat[key][item_key] += item_value
+                            if args.seq_level_task:
+                                batch_seq_level_stat = criterion.correct_predict_num(seq_level_score, seq_level_labels)
+                                stat = batch_seq_level_stat["OVERALL predict_accuracy"]
+                                seq_key = "Sequence Level Task predict_accuracy"
+                                if not seq_key in valid_accuracy_stat.keys():
+                                    valid_accuracy_stat[seq_key] = stat
+                                else:
+                                    for item_key, item_value in stat.items():
+                                        valid_accuracy_stat[seq_key][item_key] += item_value
+                        valid_predict_accuracy = {}
+                        for key, stat in valid_accuracy_stat.items():
+                            if stat["total_num"] > 0:
+                                valid_predict_accuracy[key] = stat["correct_num"] / stat["total_num"]
+                            else:
+                                valid_predict_accuracy[key] = 0.
+                        dllogger.log(step="PARAMETER", data={"eval_on_validation": global_step})
+                        dllogger.log(step=(epoch, global_step, ),
+                                     data=valid_predict_accuracy)
+                        model.train()
+
 
             # exit training when reach max_steps
             if global_step >= args.max_steps:

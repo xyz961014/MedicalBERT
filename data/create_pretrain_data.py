@@ -4,6 +4,7 @@ import sys
 import os
 import random
 import h5py
+import math
 import numpy as np
 import dill
 from tqdm import tqdm
@@ -76,6 +77,10 @@ def parse_args():
                         type=float,
                         help="Probability to create a sequence shorter than maximum sequence length")
 
+    parser.add_argument("--split_valid_ratio",
+                        default=0.0,
+                        type=float,
+                        help="split a valid test from train set")
     parser.add_argument("--med_prob",
                         default=0.15,
                         type=float,
@@ -143,16 +148,23 @@ def create_pretrain_epochs(args, vocab, rng, type_probs=None):
     input_file = args.input_id_file or args.input_file
     print("creating instance from {}".format(input_file))
 
-    all_subjects = get_all_subjects(input_file, vocab, rng, is_id=args.input_id_file is not None)
+    all_subjects = get_all_subjects(input_file, vocab, rng, is_id=args.input_id_file is not None, 
+                                    split_valid_ratio=args.split_valid_ratio)
+    if args.split_valid_ratio > 0:
+        all_subjects, valid_subjects = all_subjects
+        valid_set = create_pretrain_epoch(args, valid_subjects, vocab, rng, desc="validation")
+    else:
+        valid_set = None
 
     pretrain_epochs = []
     for i in range(args.dupe_factor):
         pretrain_epoch = create_pretrain_epoch(args, all_subjects, vocab, rng, type_probs, 
                                                desc="duplication {}/{}".format(i + 1, args.dupe_factor))
         pretrain_epochs.append(pretrain_epoch)
-    return pretrain_epochs
 
-def get_all_subjects(input_file, vocab, rng, is_id=False):
+    return pretrain_epochs, valid_set
+
+def get_all_subjects(input_file, vocab, rng, is_id=False, split_valid_ratio=0.05):
 
     all_subjects = [[]]
     with open(input_file, "rb") as f_input:
@@ -170,6 +182,13 @@ def get_all_subjects(input_file, vocab, rng, is_id=False):
                 all_subjects[-1].append(tokens)
 
     all_subjects = [s for s in all_subjects if s]
+    if split_valid_ratio > 0:
+        valid_len = math.ceil(split_valid_ratio * len(all_subjects))
+        train_len = len(all_subjects) - valid_len
+        train_subjects = all_subjects[:train_len]
+        valid_subjects = all_subjects[train_len:]
+        rng.shuffle(train_subjects)
+        return train_subjects, valid_subjects
     rng.shuffle(all_subjects)
     return all_subjects
 
@@ -441,9 +460,13 @@ def main(args):
             "CHART": args.chart_prob
                  }
 
-    pretrain_epochs = create_pretrain_epochs(args, vocab, rng, type_probs)
+    pretrain_epochs, valid_set = create_pretrain_epochs(args, vocab, rng, type_probs)
 
     write_epochs_to_file(args, vocab, pretrain_epochs)
+
+    if valid_set is not None:
+        args.save = "{}_validation".format(args.save)
+        write_epochs_to_file(args, vocab, [valid_set])
 
 
 if __name__ == "__main__":
