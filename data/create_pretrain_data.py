@@ -164,7 +164,7 @@ def create_pretrain_epochs(args, vocab, rng, type_probs=None):
 
     return pretrain_epochs, valid_set
 
-def get_all_subjects(input_file, vocab, rng, is_id=False, split_valid_ratio=0.05):
+def get_all_subjects(input_file, vocab, rng, is_id=False, split_valid_ratio=0):
 
     all_subjects = [[]]
     with open(input_file, "rb") as f_input:
