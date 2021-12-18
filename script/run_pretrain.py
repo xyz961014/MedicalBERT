@@ -10,6 +10,7 @@ import dill
 import h5py
 import socket
 import shutil
+import collections
 from tqdm import tqdm
 from copy import copy
 import numpy as np
@@ -494,7 +495,7 @@ def main(args):
                         #os.remove(ckpt_to_be_removed)
 
                     # compute train accuracy
-                    predict_accuracy = {}
+                    predict_accuracy = collections.OrderedDict()
                     for key, stat in accuracy_stat.items():
                         if stat["total_num"] > 0:
                             predict_accuracy[key] = stat["correct_num"] / stat["total_num"]
@@ -539,12 +540,12 @@ def main(args):
                                 else:
                                     for item_key, item_value in stat.items():
                                         valid_accuracy_stat[seq_key][item_key] += item_value
-                        valid_predict_accuracy = {}
+                        valid_predict_accuracy = collections.OrderedDict()
                         for key, stat in valid_accuracy_stat.items():
                             if stat["total_num"] > 0:
-                                valid_predict_accuracy[key] = stat["correct_num"] / stat["total_num"]
+                                valid_predict_accuracy["valid_"+key] = stat["correct_num"] / stat["total_num"]
                             else:
-                                valid_predict_accuracy[key] = 0.
+                                valid_predict_accuracy["valid_"+key] = 0.
                         dllogger.log(step="PARAMETER", data={"eval_on_validation": global_step})
                         dllogger.log(step=(epoch, global_step, ),
                                      data=valid_predict_accuracy)
