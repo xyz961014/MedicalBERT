@@ -37,6 +37,7 @@ from module import PolyWarmUpScheduler
 from data import MedicalPretrainingDataset, PretrainVocab
 from data import create_pretrain_epoch, get_all_subjects, write_epochs_to_file
 from utils import is_main_process, get_world_size, get_rank, format_step, format_metric
+from utils import JSONStreamBackend
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -176,8 +177,8 @@ def setup_training(args):
     torch.cuda.manual_seed_all(args.seed)
 
     if is_main_process():
-        dllogger.init(backends=[dllogger.JSONStreamBackend(verbosity=dllogger.Verbosity.VERBOSE,
-                                                           filename=os.path.join(args.output_dir, args.json_summary)),
+        dllogger.init(backends=[JSONStreamBackend(verbosity=dllogger.Verbosity.VERBOSE,
+                                         filename=os.path.join(args.output_dir, args.json_summary)),
                                 dllogger.StdOutBackend(verbosity=dllogger.Verbosity.DEFAULT, 
                                                        step_format=format_step,
                                                        metric_format=format_metric)])

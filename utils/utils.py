@@ -2,6 +2,7 @@ import numpy as np
 import os
 import sys
 import dill
+import json
 import torch
 import torch.distributed as dist
 from collections import defaultdict
@@ -9,6 +10,51 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
 
 from rdkit import Chem 
+
+import dllogger
+import atexit
+
+class JSONStreamBackend(dllogger.Backend):
+    def __init__(self, verbosity, filename):
+        super().__init__(verbosity=verbosity)
+        self._filename = filename
+        self.file = open(filename, "a")
+        atexit.register(self.file.close)
+
+    def metadata(self, timestamp, elapsedtime, metric, metadata):
+        self.file.write(
+            "DLLL {}\n".format(
+                json.dumps(
+                    dict(
+                        timestamp=str(timestamp.timestamp()),
+                        elapsedtime=str(elapsedtime),
+                        datetime=str(timestamp),
+                        type="METADATA",
+                        metric=metric,
+                        metadata=metadata,
+                    )
+                )
+            )
+        )
+
+    def log(self, timestamp, elapsedtime, step, data):
+        self.file.write(
+            "DLLL {}\n".format(
+                json.dumps(
+                    dict(
+                        timestamp=str(timestamp.timestamp()),
+                        datetime=str(timestamp),
+                        elapsedtime=str(elapsedtime),
+                        type="LOG",
+                        step=step,
+                        data=data,
+                    )
+                )
+            )
+        )
+
+    def flush(self):
+        self.file.flush()
 
 def get_rank():
     if not dist.is_available():
