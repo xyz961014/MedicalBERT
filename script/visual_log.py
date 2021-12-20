@@ -15,6 +15,8 @@ def parse_args():
                         help="field name to visualize")
     parser.add_argument("--title", type=str, default=None,
                         help="picture title")
+    parser.add_argument("--save_pdf", action="store_true",
+                        help="save the picture as pdf")
 
     return parser.parse_args()
 
@@ -35,7 +37,7 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(figsize=(20, 10))
 
     # title
-    title = (" VS ".join(args.fields)) if args.title is None else args.title
+    title = ("_VS_".join(args.fields)) if args.title is None else args.title
     plt.title(title, fontsize=30)
 
     # prepare data
@@ -67,6 +69,7 @@ if __name__ == "__main__":
     ax.legend(plots, [l.get_label() for l in plots], fontsize=20)
 
     plt.tight_layout()
-    plt.savefig("{}.pdf".format("_".join(args.fields)))
+    if args.save_pdf:
+        plt.savefig("{}.pdf".format(title))
     
     plt.show()

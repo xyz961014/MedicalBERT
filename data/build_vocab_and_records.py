@@ -32,10 +32,14 @@ def parse_args():
                         help="number of buckets per item")
     parser.add_argument("--save", type=str, default="final",
                         help="filename of saving vocabulary and records")
+    parser.add_argument("--do_not_count_token", action="store_true",
+                        help="skip counting tokens for vocab")
     parser.add_argument("--no_value_num", action="store_true",
                         help="only keep the value range of the value")
     parser.add_argument("--no_value", action="store_true",
                         help="do not keep the value")
+    parser.add_argument("--day_level", action="store_true",
+                        help="generate day level data rather than admission level")
     return parser.parse_args()
 
 class Vocab(object):
@@ -170,6 +174,9 @@ class PretrainVocab(object):
 
         return tokens
 
+    def detokenize(self, ids):
+        return " ".join([self.idx2word[i] for i in ids])
+
 
 def build_vocab(args):
     print("build vocab ...")
@@ -271,6 +278,7 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
     records = [] # (patient, code_type: 3, codes)  code_type:diag, proc, med
     num_admissions = 0
     atcs = []
+    ipdb.set_trace()
     for subject_id in df['SUBJECT_ID'].unique():
         item_df = df[df['SUBJECT_ID'] == subject_id]
         patient = []
@@ -389,7 +397,17 @@ def build_pretrain_data(args, vocab, df):
                 df_types = list(datetime_df["TYPE"].unique())
                 current_date = datetime.astype("str").split("T")[0]
                 if not last_date == current_date:
-                    print_token("<DAY>")
+                    if args.day_level:
+                        if last_date is not None:
+                            token_file.write("\n")
+                            id_file.write("\n")
+                            print_token("<ADMISSION>")
+                            for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
+                                t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
+                                print_token("<{}>".format(t))
+                                print_df(t_df)
+                    else:
+                        print_token("<DAY>")
                     last_date = current_date
                 for df_type in df_types:
                     datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
@@ -544,7 +562,8 @@ if __name__ == "__main__":
         else:
             data_df = build_token(args, vocab, bucket_df)
         # count tokens
-        vocab = count_words(args, vocab, data_df)
+        if not args.do_not_count_token:
+            vocab = count_words(args, vocab, data_df)
 
         build_pretrain_data(args, vocab, data_df)
     else:
