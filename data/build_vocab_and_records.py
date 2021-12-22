@@ -278,7 +278,6 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
     records = [] # (patient, code_type: 3, codes)  code_type:diag, proc, med
     num_admissions = 0
     atcs = []
-    ipdb.set_trace()
     for subject_id in df['SUBJECT_ID'].unique():
         item_df = df[df['SUBJECT_ID'] == subject_id]
         patient = []
