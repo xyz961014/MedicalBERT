@@ -1,6 +1,7 @@
 import dill
 import os
 import argparse
+import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -53,10 +54,10 @@ def main(args):
         lab_unit_list = hadm_lab_df["VALUEUOM"].tolist()
         lab_flag_list = hadm_lab_df["FLAG"].tolist()
 
-        df.loc[idx, "LAB_ID"] = " ".join([str(l) for l in lab_id_list])
-        df.loc[idx, "LAB_VALUE"] = " ".join([str(l) for l in lab_value_list])
-        df.loc[idx, "LAB_UNIT"] = " ".join([str(l) for l in lab_unit_list])
-        df.loc[idx, "LAB_FLAG"] = " ".join([str(l) for l in lab_flag_list])
+        df.loc[idx, "LAB_ID"] = json.dumps(lab_id_list)
+        df.loc[idx, "LAB_VALUE"] = json.dumps(lab_value_list)
+        df.loc[idx, "LAB_UNIT"] = json.dumps(lab_unit_list)
+        df.loc[idx, "LAB_FLAG"] = json.dumps(lab_flag_list)
 
     df.to_pickle("{}_data.pkl".format(args.save))
 

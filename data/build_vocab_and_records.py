@@ -1,6 +1,8 @@
 import dill
 import os
+import re
 import argparse
+import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -61,7 +63,7 @@ class Vocab(object):
 
 class PretrainVocab(object):
 
-    def __init__(self):
+    def __init__(self, value_range=False):
         super().__init__()
 
         self.type_with_id = ["LAB", "CHART", "MED", "PROC", "DIAG"]
@@ -75,6 +77,8 @@ class PretrainVocab(object):
         self.itemid2valueids = {}
         self.idx2type = {}
         self.idx2detail = {}
+
+        self.value_range = value_range
 
     def __len__(self):
         return self.vocab_size
@@ -117,6 +121,8 @@ class PretrainVocab(object):
                 word = "{}-{}".format(typ, word)
             return word
         else:
+            if typ == "FLAG" and word.upper() in ["NORMAL", "ABNORMAL", "DELTA"]:
+                word = "<{}>".format(word.upper())
             return word
 
     def get_word_id(self, word, typ):
@@ -125,6 +131,33 @@ class PretrainVocab(object):
             return self.word2idx[word]
         else:
             return self.word2idx["<UNK>"]
+
+    def get_value_word_id(self, value, unit, item_wordid):
+        value_ids = self.itemid2valueids[item_wordid]
+        values = [self.idx2word[v] for v in value_ids]
+        value_nums = [v[:re.search(unit, v).start()].split("~") if not unit.strip() == "" else v.split("~") 
+                      for v in values]
+        value_boundaries = set()
+        for bounds in value_nums:
+            for bound in bounds:    
+                bound = "inf" if bound == "max" else bound
+                bound = "-inf" if bound == "min" else bound
+                value_boundaries.add(float(bound))
+        value_boundaries = sorted(list(value_boundaries))
+
+        start, end = "", ""
+        for i in range(len(value_boundaries) - 1):
+            if value_boundaries[i] < value <= value_boundaries[i+1]:
+                start, end = value_boundaries[i], value_boundaries[i+1]
+                break
+        start = "min" if start == float("-inf") else str(start)
+        end = "max" if end == float("inf") else str(end)
+        if self.value_range:
+            value_token = "<RANGE{}>".format(i)
+        else:
+            value_token = "{}~{}{}".format(start, end, unit)
+
+        return self.get_word_id(value_token, typ="VALUE")
 
     def add_word(self, word, typ):
         word = self.normalize_word(word, typ)
@@ -211,7 +244,7 @@ def build_pretrain_vocab(args, df):
     special_tokens += ["<SPECIAL{}>".format(i) for i in range(0, 64 - len(special_tokens))]
         
     print("build pretrain vocab ...")
-    vocab = PretrainVocab()
+    vocab = PretrainVocab(value_range=args.no_value_num)
 
     types = list(df["TYPE"].dropna().unique())
     type_tokens = ["<{}>".format(t) for t in types]
@@ -224,6 +257,8 @@ def build_pretrain_vocab(args, df):
     # add bucket value tokens
     if "BUCKET_VALUE" in df.columns:
         vocab.add_words(list(df["BUCKET_VALUE"].dropna().unique()), typ="VALUE")
+    if "BUCKET_VALUE_NUM" in df.columns:
+        vocab.add_words(list(df["BUCKET_VALUE_NUM"].dropna().unique()), typ="VALUE")
     # add id tokens
     for t in types:
         t_df = df[df["TYPE"] == t]
@@ -234,8 +269,9 @@ def build_pretrain_vocab(args, df):
         for item_id in list(df["ITEMID"].dropna().unique()):
             item_df = df[df["ITEMID"] == item_id]
             typ = list(item_df["TYPE"].unique())[0]
-            if "BUCKET_VALUE" in item_df.columns:
-                bucket_values = list(item_df["BUCKET_VALUE"].dropna().unique())
+            bucket_key= "BUCKET_VALUE_NUM" if args.no_value_num else "BUCKET_VALUE"
+            if bucket_key in item_df.columns:
+                bucket_values = list(item_df[bucket_key].dropna().unique())
                 vocab.add_item_values(item_id, typ=typ, values=bucket_values)
     # get detail from original csv table
     vocab.get_detail(args.data_dir)
@@ -292,6 +328,22 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
                     vocab.add_word(atc, "MED-ATC")
             admission.append([vocab.get_word_id(i, "MED-ATC") for i in row['NDC']])
             admission.append([vocab.get_word_id(i, "MED") for i in row['NDC_ORIGINAL']])
+            if "LAB_ID" in row.keys():
+                if pd.notna(row["LAB_ID"]):
+                    lab_ids = json.loads(row["LAB_ID"])
+                    lab_values = json.loads(row["LAB_VALUE"])
+                    lab_units = json.loads(row["LAB_UNIT"])
+                    lab_flags = json.loads(row["LAB_FLAG"])
+                    labs = list(zip(lab_ids, lab_values, lab_units, lab_flags))
+                    lab_tokens = []
+                    for lab_id, lab_value, lab_unit, lab_flag in labs:
+                        lab_token_id = vocab.get_word_id(lab_id, typ="LAB")
+                        lab_flag_id = vocab.get_word_id(lab_flag, typ="FLAG")
+                        lab_value_id = vocab.get_value_word_id(lab_value, lab_unit, lab_token_id)
+                        lab_tokens.append(lab_token_id)
+                        lab_tokens.append(lab_value_id)
+                        lab_tokens.append(lab_flag_id)
+                    admission.append(lab_tokens)
             patient.append(admission)
             num_admissions += 1
         records.append(patient) 
@@ -459,10 +511,10 @@ def build_buckets(args):
 
             for i in range(len(boundary_index) - 1):
                 bucket_index = item_df[boundary_index[i]:boundary_index[i+1]].index
+                bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
                 if args.no_value_num:
+                    df.loc[bucket_index, "BUCKET_VALUE_NUM"] = bucket_value
                     bucket_value = "<RANGE{}>".format(i)
-                else:
-                    bucket_value = "{}~{}{}".format(boundary_values[i], boundary_values[i+1], unit)
                 df.loc[bucket_index, "BUCKET_VALUE"] = bucket_value
 
         print("build buckets complete")

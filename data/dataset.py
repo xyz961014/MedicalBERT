@@ -169,6 +169,7 @@ class MedicalRecommendationDataloader(object):
             self.CUR_TOKEN = vocab.get_word_id("<SPECIAL0>", "SPECIAL")
             self.DIAG_TOKEN = vocab.get_word_id("<DIAG>", "TYPE")
             self.PROC_TOKEN = vocab.get_word_id("<PROC>", "TYPE")
+            self.LAB_TOKEN = vocab.get_word_id("<LAB>", "TYPE")
             self.MED_TOKEN = vocab.get_word_id("<MED>", "TYPE")
 
 
@@ -294,6 +295,7 @@ class MedicalRecommendationDataloader(object):
                     procs = admission[1]
                     meds_to_pred = admission[2]
                     meds_to_pred = [self.vocab.intra_type_index["MED-ATC"][m] for m in meds_to_pred]
+                    
 
                     if self.history:
                         union_inputs += [self.CUR_TOKEN]
@@ -301,6 +303,14 @@ class MedicalRecommendationDataloader(object):
 
                     union_inputs += [self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
                     segment_ids += [segment_id] * (2 + len(diags) + len(procs))
+                    if len(admission) == 5:
+                        labs = admission[4]
+                        union_inputs += [self.LAB_TOKEN] + labs
+                        segment_ids += [segment_id] * (1 + len(labs))
+
+                    if len(union_inputs) > 512:
+                        union_inputs = union_inputs[:512]
+                        segment_ids = segment_ids[:512]
                     bce_loss_target = np.zeros((1, self.med_vocab_size))
                     bce_loss_target[:, meds_to_pred] = 1
                     margin_loss_target = np.full((1, self.med_vocab_size), -1)
