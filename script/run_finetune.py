@@ -602,7 +602,17 @@ def main(args):
               time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 20)
         if args.train:
             model.load_state_dict(torch.load(open(os.path.join(args.output_dir, best_ckp), "rb"))["model"])
-        evaluate(test_loader)
+        ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(test_loader)
+
+        dllogger.log(step="PARAMETER", data={"test_step": global_step})
+        dllogger.log(step=(epoch, global_step, ), 
+                     data={"jaccard": jaccard,
+                           "ddi_rate": ddi_rate,
+                           "avg_precision": avg_p,
+                           "avg_recall": avg_r,
+                           "avg_f1": avg_f1,
+                           "prauc": prauc},
+                     verbosity=dllogger.Verbosity.VERBOSE)
 
 
 

@@ -42,6 +42,10 @@ def parse_args():
                         help="do not keep the value")
     parser.add_argument("--day_level", action="store_true",
                         help="generate day level data rather than admission level")
+    parser.add_argument("--first_day", action="store_true",
+                        help="only generate first day data in an admission")
+    parser.add_argument("--inner_temporal", action="store_true",
+                        help="generate tokens like med, lab separately")
     return parser.parse_args()
 
 class Vocab(object):
@@ -425,6 +429,22 @@ def build_pretrain_data(args, vocab, df):
                     flag_token = "<{}>".format(row["FLAG"].upper())
                     print_token(flag_token)
 
+    def write_buffer(token_buffer):
+
+        keys = sorted(token_buffer.keys(), reverse=True)
+        #assert keys[0] == "MED"
+        for key in keys:
+            type_tokens = token_buffer[key]
+            print_token("<{}>".format(key))
+            for token_or_df in type_tokens:
+                if type(token_or_df) == str: 
+                    if token_or_df == "<DAY>":
+                        print_token("<DAY>")
+                else:
+                    print_df(token_or_df)
+        token_buffer = {t: [] for t in token_buffer.keys()}
+        return token_buffer
+
     subjects = list(df["SUBJECT_ID"].unique())
     for subject_id in tqdm(subjects, desc="build data"):
         subject_df = df[df["SUBJECT_ID"] == subject_id]
@@ -443,6 +463,8 @@ def build_pretrain_data(args, vocab, df):
                 print_df(t_df)
             # add tokens in order of time
             last_date = None
+            if args.inner_temporal:
+                token_buffer = {t: [] for t in adm_df_w_time["TYPE"].dropna().unique()}
             for datetime in list(adm_df_w_time["DATETIME"].dropna().unique()):
                 datetime_df = adm_df_w_time[adm_df_w_time["DATETIME"] == datetime]
                 df_types = list(datetime_df["TYPE"].unique())
@@ -450,23 +472,40 @@ def build_pretrain_data(args, vocab, df):
                 if not last_date == current_date:
                     if args.day_level:
                         if last_date is not None:
+                            if args.inner_temporal:
+                                token_buffer = write_buffer(token_buffer)
                             token_file.write("\n")
                             id_file.write("\n")
                             print_token("<ADMISSION>")
                             for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
                                 t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
-                                print_token("<{}>".format(t))
-                                print_df(t_df)
+                                if args.inner_temporal:
+                                    token_buffer[t].append(t_df)
+                                else:
+                                    print_token("<{}>".format(t))
+                                    print_df(t_df)
                     else:
-                        print_token("<DAY>")
+                        if args.first_day and last_date is not None:
+                            continue
+                        else:
+                            if args.inner_temporal:
+                                for key in token_buffer.keys():
+                                    token_buffer[key].append("<DAY>")
+                            else:
+                                print_token("<DAY>")
                     last_date = current_date
                 for df_type in df_types:
                     datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
                     if df_type in vocab.type_with_value and "BUCKET_VALUE" in datetime_type_df.columns:
                         datetime_type_df = datetime_type_df[pd.notna(datetime_type_df["BUCKET_VALUE"])]
-                    print_token("<{}>".format(df_type))
-                    print_df(datetime_type_df)
+                    if args.inner_temporal:
+                        token_buffer[df_type].append(datetime_type_df)
+                    else:
+                        print_token("<{}>".format(df_type))
+                        print_df(datetime_type_df)
 
+            if args.inner_temporal:
+                token_buffer = write_buffer(token_buffer)
             token_file.write("\n")
             id_file.write("\n")
         token_file.write("\n")
