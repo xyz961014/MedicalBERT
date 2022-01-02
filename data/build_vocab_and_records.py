@@ -479,11 +479,8 @@ def build_pretrain_data(args, vocab, df):
                             print_token("<ADMISSION>")
                             for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
                                 t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
-                                if args.inner_temporal:
-                                    token_buffer[t].append(t_df)
-                                else:
-                                    print_token("<{}>".format(t))
-                                    print_df(t_df)
+                                print_token("<{}>".format(t))
+                                print_df(t_df)
                     else:
                         if args.first_day and last_date is not None:
                             continue
