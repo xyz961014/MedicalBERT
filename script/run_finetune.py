@@ -213,6 +213,12 @@ def parse_args():
     parser.add_argument('--from_scratch', 
                         action='store_true',
                         help="do not load pretrained parameter")
+    parser.add_argument('--mean_repr', 
+                        action='store_true',
+                        help="use mean representation instead of <CLS> to predict")
+    parser.add_argument('--use_bert_embedding', 
+                        action='store_true',
+                        help="use bert embedding to predict first")
 
     return parser.parse_args()
 
@@ -391,13 +397,22 @@ def main(args):
     else:
         state_dict = None
 
+    if args.use_bert_embedding:
+        embedding_index = vocab.get_type_vocab_ids("MED")
+    else:
+        embedding_index = None
+
     if not args.from_scratch:
         model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
                                                                      config=config,
                                                                      state_dict=state_dict,
-                                                                     num_labels=num_labels)
+                                                                     num_labels=num_labels,
+                                                                     mean_repr=args.mean_repr,
+                                                                     embedding_index=embedding_index)
     else:
-        model = MedicalBertForSequenceClassification(config, num_labels=num_labels)
+        model = MedicalBertForSequenceClassification(config=config, 
+                                                     num_labels=num_labels, 
+                                                     mean_repr=args.mean_repr)
 
     # load checkpoint if needed
     checkpoint = None

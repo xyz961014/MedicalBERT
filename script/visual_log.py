@@ -83,7 +83,7 @@ if __name__ == "__main__":
         plt.tick_params(axis='both', labelsize=18)
 
         ax.set_xlabel(x_name, fontsize=18)
-        ax.set_ylabel(y_name, fontsize=18)
+        ax.set_ylabel(field, fontsize=18)
 
         plot = ax.plot(x_labels, y_labels, markersize=10, label=y_name, linewidth=2)
         plots.extend(plot)

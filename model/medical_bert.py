@@ -741,19 +741,36 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
     logits = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config, num_labels):
+    def __init__(self, config, num_labels, mean_repr=False, embedding_index=None):
         super().__init__(config)
         self.num_labels = num_labels
+        self.mean_repr = mean_repr
+        self.embedding_index = embedding_index
         self.bert = MedicalBertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        if embedding_index is None:
+            self.classifier = nn.Linear(config.hidden_size, num_labels)
+        else:
+            embedding_weight = self.bert.embeddings.word_embeddings.weight 
+            self.decoder = nn.Linear(embedding_weight.size(1), embedding_weight.size(0), bias=False)
+            self.decoder.weight = embedding_weight
+            self.classifier = nn.Linear(len(embedding_index), num_labels)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
         encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
-        cls_repr = encoded_layers[-1][:, 0, :]
+        if self.mean_repr:
+            cls_repr = encoded_layers[-1].mean(dim=1)
+        else:
+            cls_repr = encoded_layers[-1][:, 0, :]
         pooled_output = self.dropout(cls_repr)
-        return self.classifier(pooled_output)
+        if self.embedding_index is None:
+            return self.classifier(pooled_output)
+        else:
+            output = self.decoder(pooled_output)
+            output = output.index_select(dim=-1, index=torch.LongTensor(self.embedding_index).to(output.device))
+            return self.classifier(output)
+
 
 
 class MedicalBertPretrainingCriterion(nn.Module):

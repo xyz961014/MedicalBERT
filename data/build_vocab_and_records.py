@@ -99,6 +99,9 @@ class PretrainVocab(object):
     def get_type_vocab_size(self, typ):
         return len([v for v in self.idx2type.values() if v == typ])
 
+    def get_type_vocab_ids(self, typ):
+        return [k for k, v in self.idx2type.items() if v == typ]
+
     def build_intra_type_index(self, typ):
         if not hasattr(self, "intra_type_index"):
             self.intra_type_index = {}
