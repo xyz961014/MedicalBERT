@@ -445,7 +445,12 @@ def main(args):
         }]
 
     optimizer = optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
+    lr_scheduler = PolyWarmUpScheduler(optimizer, 
+                                       warmup=args.warmup_proportion, 
+                                       total_steps=args.max_epochs * len(train_loader))
+
     if args.resume_from_checkpoint:
+        lr_scheduler.step(global_step)
         optimizer.load_state_dict(checkpoint["optimizer"])
 
     # convert model for DDP training
@@ -516,6 +521,7 @@ def main(args):
 
                 # optimize the model
                 if training_steps % args.gradient_accumulation_steps == 0:
+                    lr_scheduler.step()
                     optimizer.step()
                     global_step += 1
                     model.zero_grad()
@@ -531,10 +537,11 @@ def main(args):
                                      verbosity=verbosity)
                         if global_step % args.display_freq == 0:
                             print("\rTrain Epoch: {:3d} | Global Step: {:5d} | Step: {:5d} / {:5d} "
-                                  "| Loss: {:5.5f}".format(epoch,
+                                    "| LR: {:5.3e} | Loss: {:5.5f}".format(epoch,
                                                            global_step,
                                                            step + 1, 
-                                                           len(train_loader), 
+                                                           len(train_loader),
+                                                           optimizer.param_groups[0]['lr'],
                                                            np.mean(loss_record)))
 
                 # save model per args.num_steps_per_checkpoint
