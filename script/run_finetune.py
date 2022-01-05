@@ -198,6 +198,9 @@ def parse_args():
     parser.add_argument('--history', 
                         action='store_true',
                         help="load data of admission history")
+    parser.add_argument('--shuffle', 
+                        action='store_true',
+                        help="shuffle data")
     parser.add_argument("--attention_probs_dropout_prob", 
                         type=float, default=0.1,
                         help="dropout rate on attention probabilities")
@@ -276,6 +279,7 @@ def get_dataset(args, vocab):
 
 
     TASKS[args.task_name]["dataloader_args"]["history"] = args.history
+    TASKS[args.task_name]["dataloader_args"]["shuffle"] = args.shuffle
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
