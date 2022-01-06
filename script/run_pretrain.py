@@ -76,6 +76,10 @@ def parse_args():
                         default=False,
                         action="store_true",
                         help="adaptive training")
+    parser.add_argument("--adaptive_beta",
+                        default=2.0,
+                        type=float,
+                        help="The beta value for adaptive training.")
     parser.add_argument("--max_seq_length",
                         default=512,
                         type=int,
@@ -363,7 +367,7 @@ def main(args):
                 for key in mask_probs:
                     if key in accuracy_key_dicts.keys():
                         accuracy = predict_accuracy[accuracy_key_dicts[key]]
-                        mask_probs[key] = (1 - accuracy) * args.masked_lm_prob
+                        mask_probs[key] = ((1 - accuracy) ** args.adaptive_beta) * args.masked_lm_prob
             if is_main_process():
                 print(json.dumps(mask_probs, indent=4))
             epoch_data = create_pretrain_epoch(args, all_subjects, vocab, rng, mask_probs, 
