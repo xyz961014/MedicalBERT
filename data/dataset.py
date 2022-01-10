@@ -6,6 +6,7 @@ import random
 import h5py
 import numpy as np
 import torch
+from copy import deepcopy
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import jaccard_score, roc_auc_score, precision_score, f1_score, average_precision_score
@@ -142,8 +143,12 @@ class MedicalRecommendationDataloader(object):
 
         self.evaluate = evaluate
         self.history = history
+
         if evaluate:
             self.shuffle = False
+
+        if self.shuffle:
+            random.shuffle(self.records)
 
         if model_name in ["Leap", "DMNC"]:
             self.END_TOKEN = self.med_vocab_size + 1
@@ -181,8 +186,8 @@ class MedicalRecommendationDataloader(object):
 
     def __iter__(self):
         data_to_iter = self.records
-        if self.shuffle:
-            random.shuffle(data_to_iter)
+        #if self.shuffle:
+        #    random.shuffle(data_to_iter)
         #if self.evaluate:
         #    data_to_iter = [data for data in data_to_iter if len(data) > 1]
         for patient in data_to_iter:
@@ -208,7 +213,16 @@ class MedicalRecommendationDataloader(object):
                         yield seq_inputs, y_target
                     else:
                         yield seq_inputs, loss1_target, loss3_target
-                elif self.model_name in ["Leap", "DMNC"]:
+                elif self.model_name in ["Retain"]:
+                    seq_inputs = deepcopy(patient[:idx+1])
+                    seq_inputs[-1][2] = []
+                    loss_target = np.zeros((1, self.med_vocab_size))
+                    loss_target[:, admission[2]] = 1
+                    if self.evaluate:
+                        yield seq_inputs, y_target
+                    else:
+                        yield seq_inputs, loss_target
+                elif self.model_name in ["Leap", "DMNC", "LR"]:
                     if self.evaluate:
                         yield admission, y_target
                     else:

@@ -9,17 +9,21 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import Adam
 import torch.nn.functional as F
 from collections import defaultdict
+from sklearn.linear_model import LogisticRegression
+from sklearn.multiclass import OneVsRestClassifier
 from tqdm import tqdm
 
 curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
 sys.path.append(os.path.join(curr_path, "..", "data"))
 
-from models import GAMENet, Leap, DMNC, MLP, DualMLP, Transformer, DualTransformer, SafeDrugModel
+from models import GAMENet, Leap, DMNC, MLP, DualMLP, Retain
+from models import Transformer, DualTransformer, SafeDrugModel
 from data.dataset import MedicalRecommendationDataset
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
 from utils import buildMPNN
+from utils import create_dataset_for_LR
 
 curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
@@ -27,7 +31,7 @@ from data.build_vocab_and_records import Vocab
 
 import ipdb
 
-BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "MLP", "DualMLP", 
+BASELINE_MODELS = ["GAMENet", "Leap", "Nearest", "LR", "MLP", "DualMLP", "Retain", 
                    "Transformer", "DualTransformer", "SafeDrug", "DMNC"]
 
 def parse_args():
@@ -136,7 +140,7 @@ def main(args):
 
         for step, data in tqdm(enumerate(evalloader), total=len(evalloader)):
     
-            if args.model_name == "GAMENet":
+            if args.model_name in ["GAMENet", "Retain"]:
                 seq_inputs, y_target = data
                 target_output1 = model(seq_inputs)
                 target_output1 = torch.sigmoid(target_output1).detach().cpu().numpy()[0]
@@ -167,7 +171,6 @@ def main(args):
                 y_pred_tmp = np.zeros(vocab_size[2])
                 y_pred_tmp[out_list] = 1
                 y_pred = y_pred_tmp
-                pass
             elif args.model_name == "SafeDrug":
                 seq_inputs, y_target = data
                 target_output1, _ = model(seq_inputs)
@@ -186,6 +189,14 @@ def main(args):
                 y_pred_tmp[pred_list] = 1
                 y_pred = y_pred_tmp
                 y_pred_prob = y_pred_tmp
+            elif args.model_name == "LR":
+                admission, y_target = data
+                test_X, test_y = create_dataset_for_LR([[admission]], vocab)
+                y_pred_tmp = classifier.predict(test_X).squeeze()
+                y_pred_prob = classifier.predict_proba(test_X).squeeze()
+                y_pred = y_pred_tmp
+                y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+                y_pred_label = sorted(y_pred_label_tmp)
             elif args.model_name in ["MLP", "DualMLP", "Transformer", "DualTransformer"]:
                 union_inputs, y_target = data
                 target_output = model(union_inputs)
@@ -228,8 +239,8 @@ def main(args):
              avg_p, 
              avg_r, 
              avg_f1) = multi_label_metric(np.array(y_targets), 
-                                              np.array(y_preds), 
-                                              np.array(y_pred_probs))
+                                          np.array(y_preds), 
+                                          np.array(y_pred_probs))
         llprint("DDI Rate: {:6.4f} | Jaccard: {:10.4f} | PRAUC: {:7.4f}\n"
                 "AVG_PRC: {:7.4f} | AVG_RECALL: {:7.4f} | AVG_F1: {:6.4f}\n".format(
                 ddi_rate, 
@@ -307,7 +318,11 @@ def main(args):
                 output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
-                pass
+            elif args.model_name == "Retain":
+                seq_inputs, loss_target = data
+                output_logits = model(seq_inputs)
+                loss = F.binary_cross_entropy_with_logits(output_logits, 
+                                                          torch.FloatTensor(loss_target).to(device))
             elif args.model_name == "SafeDrug":
                 seq_inputs, loss1_target, loss3_target = data
                 target_output1, loss_ddi = model(seq_inputs)
@@ -433,6 +448,11 @@ def main(args):
                      emb_dim=args.emb_dim,
                      dropout=args.dropout,
                      device=device)
+    elif args.model_name == "Retain":
+        model = Retain(dataset.vocab_size,
+                       emb_dim=args.emb_dim,
+                       dropout=args.dropout,
+                       device=device)
     elif args.model_name == "Leap":
         model = Leap(dataset.vocab_size, 
                      emb_dim=args.emb_dim, 
@@ -476,6 +496,16 @@ def main(args):
                                 dropout=args.dropout,
                                 history=args.history,
                                 device=device)
+    elif args.model_name == "LR":
+        non_trivial = False
+        model = LogisticRegression(solver="sag", max_iter=1000)
+        classifier = OneVsRestClassifier(model)
+
+        train_X, train_y = create_dataset_for_LR(train_loader.records, vocab)
+
+        print("Run Logistic Regression ...")
+        classifier.fit(train_X, train_y)
+        print("Logistic Regression Done")
     elif args.model_name == "Nearest":
         non_trivial = False
 

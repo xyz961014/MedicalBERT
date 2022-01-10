@@ -364,7 +364,7 @@ class Leap(nn.Module):
 Retain
 '''
 class Retain(nn.Module):
-    def __init__(self, voc_size, emb_dim=64, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, emb_dim=64, dropout=0.3, device=torch.device('cpu:0')):
         super(Retain, self).__init__()
         self.device = device
         self.voc_size = voc_size
@@ -374,7 +374,7 @@ class Retain(nn.Module):
 
         self.embedding = nn.Sequential(
             nn.Embedding(self.inputs_len + 1, self.emb_dim, padding_idx=self.inputs_len),
-            nn.Dropout(0.3)
+            nn.Dropout(dropout)
         )
 
         self.alpha_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
@@ -409,7 +409,7 @@ class Retain(nn.Module):
         g = g.squeeze(dim=0) # (visit, emb)
         h = h.squeeze(dim=0) # (visit, emb)
         attn_g = F.softmax(self.alpha_li(g), dim=-1) # (visit, 1)
-        attn_h = F.tanh(self.beta_li(h)) # (visit, emb)
+        attn_h = torch.tanh(self.beta_li(h)) # (visit, emb)
 
         c = attn_g * attn_h * visit_emb # (visit, emb)
         c = torch.sum(c, dim=0).unsqueeze(dim=0) # (1, emb)

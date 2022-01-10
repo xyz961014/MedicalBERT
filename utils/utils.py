@@ -452,3 +452,34 @@ def buildMPNN(molecule, med_voc, radius=1, device="cpu:0"):
             col_counter += item
 
     return MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)
+
+
+def create_dataset_for_LR(data, vocab):
+    diag_vocab = vocab["diag_vocab"]
+    proc_vocab = vocab["proc_vocab"]
+    med_vocab = vocab["med_vocab"]
+    i1_len = len(diag_vocab.idx2word)
+    i2_len = len(proc_vocab.idx2word)
+    output_len = len(med_vocab.idx2word)
+    input_len = i1_len + i2_len
+    X = []
+    y = []
+    for patient in data:
+        for visit in patient:
+            i1 = visit[0]
+            i2 = visit[1]
+            o = visit[2]
+
+            multi_hot_input = np.zeros(input_len)
+            multi_hot_input[i1] = 1
+            multi_hot_input[np.array(i2) + i1_len] = 1
+
+            multi_hot_output = np.zeros(output_len)
+            multi_hot_output[o] = 1
+
+            X.append(multi_hot_input)
+            y.append(multi_hot_output)
+
+    return np.array(X), np.array(y)
+
+
