@@ -741,20 +741,26 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
     logits = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config, num_labels, mean_repr=False, embedding_index=None):
+    def __init__(self, config, num_labels, mean_repr=False, embedding_index=None, 
+                 decoder="linear", decoder_params=None):
         super().__init__(config)
         self.num_labels = num_labels
         self.mean_repr = mean_repr
         self.embedding_index = embedding_index
         self.bert = MedicalBertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        if embedding_index is None:
-            self.classifier = nn.Linear(config.hidden_size, num_labels)
-        else:
+        hidden_dim = config.hidden_size
+        if embedding_index is not None:
             embedding_weight = self.bert.embeddings.word_embeddings.weight 
-            self.decoder = nn.Linear(embedding_weight.size(1), embedding_weight.size(0), bias=False)
-            self.decoder.weight = embedding_weight
-            self.classifier = nn.Linear(len(embedding_index), num_labels)
+            self.emb_bind = nn.Linear(embedding_weight.size(1), embedding_weight.size(0), bias=False)
+            self.emb_bind.weight = embedding_weight
+            hidden_dim = len(embedding_index)
+        if decoder == "linear":
+            self.decoder = nn.Linear(hidden_dim, num_labels)
+        elif decoder == "mlp":
+            self.decoder = MLPDecoder(hidden_dim, num_labels, **decoder_params)
+        elif decoder == "gamenet":
+            pass
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
@@ -763,13 +769,30 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
             cls_repr = encoded_layers[-1].mean(dim=1)
         else:
             cls_repr = encoded_layers[-1][:, 0, :]
-        pooled_output = self.dropout(cls_repr)
-        if self.embedding_index is None:
-            return self.classifier(pooled_output)
-        else:
-            output = self.decoder(pooled_output)
+        output = self.dropout(cls_repr)
+
+        if self.embedding_index is not None:
+            output = self.emb_bind(output)
             output = output.index_select(dim=-1, index=torch.LongTensor(self.embedding_index).to(output.device))
-            return self.classifier(output)
+
+        final_ouptut = self.decoder(output)
+        return final_ouptut
+
+class MLPDecoder(nn.Module):
+
+    def __init__(self, input_dim, output_dim, num_layers=2, hidden_dim=1024):
+        super().__init__()
+        assert num_layers > 1
+        self.encoder = nn.Linear(input_dim, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim, output_dim)
+        self.layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for i in range(num_layers - 2)])
+
+    def forward(self, inputs):
+        hidden = torch.tanh(self.encoder(inputs))
+        for layer in self.layers:
+            hidden = torch.tanh(layer(hidden))
+        output = self.classifier(hidden)
+        return output
 
 
 

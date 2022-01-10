@@ -220,6 +220,14 @@ def parse_args():
                         action='store_true',
                         help="use bert embedding to predict first")
 
+    parser.add_argument('--decoder', type=str, default="linear",
+                        choices=["linear", "mlp", "gamenet"],
+                        help='decoder of Finetuning model. default: linear')
+    parser.add_argument('--decoder_mlp_layers', type=int, default=2,
+                        help='number of layers of MLP in decoder')
+    parser.add_argument('--decoder_mlp_hidden', type=int, default=1024,
+                        help='dim of hidden layers of MLP in decoder')
+
     return parser.parse_args()
 
 
@@ -402,17 +410,33 @@ def main(args):
     else:
         embedding_index = None
 
+    decoder_params = {}
+    if args.decoder.lower() == "linear":
+        pass
+    elif args.decoder.lower() == "mlp":
+        decoder_params = {
+                "num_layers": args.decoder_mlp_layers,
+                "hidden_dim": args.decoder_mlp_hidden
+                         }
+    elif args.decoder.lower() == "gamenet":
+        pass
+
     if not args.from_scratch:
         model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
                                                                      config=config,
                                                                      state_dict=state_dict,
                                                                      num_labels=num_labels,
                                                                      mean_repr=args.mean_repr,
-                                                                     embedding_index=embedding_index)
+                                                                     embedding_index=embedding_index,
+                                                                     decoder=args.decoder.lower(),
+                                                                     decoder_params=decoder_params
+                                                                     )
     else:
         model = MedicalBertForSequenceClassification(config=config, 
                                                      num_labels=num_labels, 
-                                                     mean_repr=args.mean_repr)
+                                                     mean_repr=args.mean_repr,
+                                                     decoder=args.decoder.lower(),
+                                                     decoder_params=decoder_params)
 
     # load checkpoint if needed
     checkpoint = None
