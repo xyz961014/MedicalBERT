@@ -788,9 +788,9 @@ class MLPDecoder(nn.Module):
         self.layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for i in range(num_layers - 2)])
 
     def forward(self, inputs):
-        hidden = torch.tanh(self.encoder(inputs))
+        hidden = torch.relu(self.encoder(inputs))
         for layer in self.layers:
-            hidden = torch.tanh(layer(hidden))
+            hidden = torch.relu(layer(hidden))
         output = self.classifier(hidden)
         return output
 
