@@ -14,6 +14,11 @@ from torch.utils import checkpoint
 import torch.nn.functional as F
 import torch.nn.init as init
 
+curr_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(os.path.join(curr_path, ".."))
+sys.path.append(os.path.join(curr_path, "../baseline"))
+from baseline.models import GCN
+
 logger = logging.getLogger(__name__)
 
 
@@ -746,6 +751,7 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
         super().__init__(config)
         self.num_labels = num_labels
         self.mean_repr = mean_repr
+        self.decoder_name = decoder
         self.embedding_index = embedding_index
         self.bert = MedicalBertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -760,39 +766,141 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
         elif decoder == "mlp":
             self.decoder = MLPDecoder(hidden_dim, num_labels, **decoder_params)
         elif decoder == "gamenet":
-            pass
+            self.decoder = GAMENetDecoder(hidden_dim, num_labels, **decoder_params)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
+        if self.decoder_name == "gamenet":
+            input_ids, history_meds = input_ids
         encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
         if self.mean_repr:
-            cls_repr = encoded_layers[-1].mean(dim=1)
+            seq_repr = encoded_layers[-1].mean(dim=1)
         else:
-            cls_repr = encoded_layers[-1][:, 0, :]
-        output = self.dropout(cls_repr)
+            seq_repr = encoded_layers[-1][:, 0, :]
+        
+        if self.decoder_name == "gamenet":
+            adm_id = self.decoder.vocab.word2idx["<ADMISSION>"]
+            adm_reprs = []
+            for idx, word_id in enumerate(input_ids.squeeze().tolist()):
+                if word_id == adm_id:
+                    adm_reprs.append(encoded_layers[-1][:, idx, :])
+            seq_repr = torch.cat(adm_reprs, dim=0)
+
+        output = self.dropout(seq_repr)
 
         if self.embedding_index is not None:
             output = self.emb_bind(output)
             output = output.index_select(dim=-1, index=torch.LongTensor(self.embedding_index).to(output.device))
 
-        final_ouptut = self.decoder(output)
+        if self.decoder_name == "gamenet":
+            final_ouptut = self.decoder(output, history_meds)
+        else:
+            final_ouptut = self.decoder(output)
+
         return final_ouptut
 
 class MLPDecoder(nn.Module):
 
-    def __init__(self, input_dim, output_dim, num_layers=2, hidden_dim=1024):
+    def __init__(self, input_dim, output_dim, num_layers=2, hidden_dim=1024, dropout=0.5):
         super().__init__()
         assert num_layers > 1
         self.encoder = nn.Linear(input_dim, hidden_dim)
         self.classifier = nn.Linear(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(p=dropout)
         self.layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for i in range(num_layers - 2)])
 
     def forward(self, inputs):
-        hidden = torch.relu(self.encoder(inputs))
+        hidden = self.dropout(torch.relu(self.encoder(inputs)))
         for layer in self.layers:
-            hidden = torch.relu(layer(hidden))
+            hidden = self.dropout(torch.relu(layer(hidden)))
         output = self.classifier(hidden)
         return output
+
+
+class GAMENetDecoder(nn.Module):
+    def __init__(self, input_dim, output_dim, vocab=None, ehr_adj=None, ddi_adj=None, dropout=0.4,
+                 device=torch.device('cpu:0'), ddi_in_memory=True):
+        super().__init__()
+        self.vocab = vocab
+        self.device = device
+        self.tensor_ddi_adj = torch.FloatTensor(ddi_adj).to(device)
+        self.ddi_in_memory = ddi_in_memory
+        self.dropout = nn.Dropout(p=dropout)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        emb_dim = int(input_dim / 4)
+
+        self.query = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 4, emb_dim),
+        )
+
+        self.ehr_gcn = GCN(voc_size=output_dim, emb_dim=emb_dim, adj=ehr_adj, dropout=dropout, device=device)
+        self.ddi_gcn = GCN(voc_size=output_dim, emb_dim=emb_dim, adj=ddi_adj, dropout=dropout, device=device)
+        self.inter = nn.Parameter(torch.FloatTensor(1))
+
+        self.output = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 3, emb_dim * 2),
+            nn.ReLU(),
+            nn.Linear(emb_dim * 2, output_dim)
+        )
+
+        self.init_weights()
+
+    def forward(self, patient_representations, history_meds):
+
+        queries = self.query(patient_representations) # (seq, dim)
+
+        # graph memory module
+        '''I:generate current inputs'''
+        query = queries[-1:] # (1,dim)
+
+        '''G:generate graph memory bank and insert history information'''
+        if self.ddi_in_memory:
+            drug_memory = self.ehr_gcn() - self.ddi_gcn() * self.inter  # (size, dim)
+        else:
+            drug_memory = self.ehr_gcn()
+
+        if patient_representations.size(0) > 1:
+            history_keys = queries[:(queries.size(0)-1)] # (seq-1, dim)
+
+            history_values = torch.zeros((patient_representations.size(0) - 1, self.output_dim))
+            if patient_representations.size(0) - 1 < len(history_meds):
+                history_meds = history_meds[-patient_representations.size(0) + 1:]
+            for idx, meds in enumerate(history_meds):
+                meds = [self.vocab.intra_type_index["MED-ATC"][m] for m in meds]
+                history_values[idx, meds] = 1
+            history_values = history_values.to(self.device) # (seq-1, size)
+
+        '''O:read from global memory bank and dynamic memory bank'''
+        key_weights1 = F.softmax(torch.mm(query, drug_memory.t()), dim=-1)  # (1, size)
+        fact1 = torch.mm(key_weights1, drug_memory)  # (1, dim)
+
+        if patient_representations.size(0) > 1:
+            visit_weight = F.softmax(torch.mm(query, history_keys.t()), dim=1) # (1, seq-1)
+            weighted_values = visit_weight.mm(history_values) # (1, size)
+            fact2 = torch.mm(weighted_values, drug_memory) # (1, dim)
+        else:
+            fact2 = fact1
+        '''R:convert O and predict'''
+        output = self.output(torch.cat([query, fact1, fact2], dim=-1)) # (1, dim)
+
+        if self.training:
+            neg_pred_prob = torch.sigmoid(output)
+            neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
+            batch_neg = neg_pred_prob.mul(self.tensor_ddi_adj).mean()
+
+            return output, batch_neg
+        else:
+            return output
+
+    def init_weights(self):
+        """Initialize weights."""
+        initrange = 0.1
+        self.inter.data.uniform_(-initrange, initrange)
+
+
 
 
 

@@ -85,22 +85,30 @@ class MedicalRecommendationDataset(object):
         self.data_test = self.data[split_point:split_point + eval_len]
         self.data_eval = self.data[split_point+eval_len:]
 
-    def get_dataloader(self, model_name, shuffle=False, history=False):
+    def get_dataloader(self, model_name, shuffle=False, history=False, return_history_meds=False):
         print("-" * 10 + " Getting train_loader " + '-' * 10)
         train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.vocab, 
-                                                       shuffle=shuffle, history=history)
+                                                       shuffle=shuffle, 
+                                                       history=history,
+                                                       return_history_meds=return_history_meds)
         print("-" * 10 + " Getting eval_loader  " + '-' * 10)
         eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.vocab, 
-                                                      evaluate=True, history=history)
+                                                      evaluate=True, 
+                                                      history=history,
+                                                      return_history_meds=return_history_meds)
         print("-" * 10 + " Getting test_loader  " + '-' * 10)
         test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.vocab, 
-                                                      evaluate=True, history=history)
+                                                      evaluate=True, 
+                                                      history=history,
+                                                      return_history_meds=return_history_meds)
         return train_loader, eval_loader, test_loader
 
-    def get_train_eval_loader(self, model_name, shuffle=False, history=False):
+    def get_train_eval_loader(self, model_name, shuffle=False, history=False, return_history_meds=False):
         print("-" * 10 + " Getting eval_loader on training set  " + '-' * 10)
         return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab, 
-                                               evaluate=True, history=history)
+                                               evaluate=True, 
+                                               history=history,
+                                               return_history_meds=return_history_meds)
 
 
     def get_extra_data(self, model_name):
@@ -123,12 +131,13 @@ class MedicalRecommendationDataset(object):
 
 class MedicalRecommendationDataloader(object):
     def __init__(self, data, model_name, vocab, shuffle=False, 
-                 batch_size=1, evaluate=False, history=False):
+                 batch_size=1, evaluate=False, history=False, return_history_meds=False):
         self.data = data
         self.vocab = vocab
         self.shuffle = shuffle
         self.batch_size = batch_size
         self.model_name = model_name
+        self.return_history_meds = return_history_meds
         if type(self.vocab) == dict:
             # baseline vocab
             self.diag_vocab_size = len(vocab["diag_vocab"].idx2word)
@@ -297,10 +306,12 @@ class MedicalRecommendationDataloader(object):
 
                     if self.history:
                         patient_history = patient[:idx]
+                        history_meds = []
                         for history_adm in patient_history:
                             adm_diags = history_adm[0]
                             adm_procs = history_adm[1]
                             adm_meds_original =  history_adm[3]
+                            history_meds.append(history_adm[2])
                             union_inputs += [self.ADM_TOKEN, self.DIAG_TOKEN] + adm_diags + [self.PROC_TOKEN] + adm_procs + [self.MED_TOKEN] + adm_meds_original
                             segment_ids += [segment_id] * (4 + len(adm_diags) + len(adm_procs) + len(adm_meds_original))
                             #segment_id += 1
@@ -312,29 +323,33 @@ class MedicalRecommendationDataloader(object):
                     
 
                     if self.history:
-                        union_inputs += [self.CUR_TOKEN]
+                        union_inputs += [self.ADM_TOKEN]
                         segment_ids += [segment_id]
 
                     union_inputs += [self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
                     segment_ids += [segment_id] * (2 + len(diags) + len(procs))
                     if len(admission) == 5:
                         labs = admission[4]
+                        labs = labs[-511 + len(union_inputs):]
                         union_inputs += [self.LAB_TOKEN] + labs
                         segment_ids += [segment_id] * (1 + len(labs))
 
                     if len(union_inputs) > 512:
-                        union_inputs = union_inputs[:512]
-                        segment_ids = segment_ids[:512]
+                        union_inputs = union_inputs[-512:]
+                        segment_ids = segment_ids[-512:]
                     bce_loss_target = np.zeros((1, self.med_vocab_size))
                     bce_loss_target[:, meds_to_pred] = 1
                     margin_loss_target = np.full((1, self.med_vocab_size), -1)
                     for i, item in enumerate(meds_to_pred):
                         margin_loss_target[0][i] = item
+
+                    if self.history and self.return_history_meds:
+                        union_inputs = (union_inputs, history_meds)
+
                     if self.evaluate:
                         yield union_inputs, segment_ids, y_target
                     else:
                         yield union_inputs, segment_ids, bce_loss_target, margin_loss_target
-                    pass
 
 
 

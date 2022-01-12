@@ -294,6 +294,8 @@ def get_dataset(args, vocab):
 
     TASKS[args.task_name]["dataloader_args"]["history"] = args.history
     TASKS[args.task_name]["dataloader_args"]["shuffle"] = args.shuffle
+    if args.decoder == "gamenet":
+        TASKS[args.task_name]["dataloader_args"]["return_history_meds"] = True
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
@@ -320,6 +322,8 @@ def main(args):
 
             # get data
             input_ids, segment_ids, y_target = data
+            if args.decoder == "gamenet":
+                input_ids, history_meds = input_ids
             if len(input_ids) > config.max_position_embeddings:
                 input_ids = input_ids[-config.max_position_embeddings:]
                 segment_ids = segment_ids[-config.max_position_embeddings:]
@@ -328,6 +332,8 @@ def main(args):
             input_mask = torch.ones_like(input_ids).to(device)
 
             # predict
+            if args.decoder == "gamenet":
+                input_ids = (input_ids, history_meds)
             target_output = model(input_ids=input_ids, 
                                   token_type_ids=segment_ids,
                                   attention_mask=input_mask)
@@ -416,9 +422,20 @@ def main(args):
     elif args.decoder.lower() == "mlp":
         decoder_params = {
                 "num_layers": args.decoder_mlp_layers,
-                "hidden_dim": args.decoder_mlp_hidden
+                "hidden_dim": args.decoder_mlp_hidden,
+                "dropout": args.hidden_dropout_prob
                          }
     elif args.decoder.lower() == "gamenet":
+
+        ehr_adj, ddi_adj = dataset.get_extra_data("GAMENet")
+        device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        decoder_params = {
+                "vocab": vocab,
+                "ehr_adj": ehr_adj,
+                "ddi_adj": ddi_adj,
+                "dropout": args.hidden_dropout_prob,
+                "device": device
+                         }
         pass
 
     if not args.from_scratch:
@@ -534,6 +551,8 @@ def main(args):
     
                 # get data
                 input_ids, segment_ids, bce_loss_target, margin_loss_target = data
+                if args.decoder == "gamenet":
+                    input_ids, history_meds = input_ids
                 if len(input_ids) > config.max_position_embeddings:
                     input_ids = input_ids[-config.max_position_embeddings:]
                     segment_ids = segment_ids[-config.max_position_embeddings:]
@@ -542,14 +561,22 @@ def main(args):
                 input_mask = torch.ones_like(input_ids).to(device)
 
                 # compute loss
-                output_target = model(input_ids=input_ids,
-                                      token_type_ids=segment_ids,
-                                      attention_mask=input_mask)
+                if args.decoder == "gamenet":
+                    output_target, ddi_loss = model(input_ids=(input_ids, history_meds),
+                                                    token_type_ids=segment_ids,
+                                                    attention_mask=input_mask)
+                else:
+                    output_target = model(input_ids=input_ids,
+                                          token_type_ids=segment_ids,
+                                          attention_mask=input_mask)
                 bce_loss = F.binary_cross_entropy_with_logits(output_target, 
                                                               torch.FloatTensor(bce_loss_target).to(device))
                 margin_loss = F.multilabel_margin_loss(torch.sigmoid(output_target), 
                                                        torch.LongTensor(margin_loss_target).to(device))
                 loss = args.alpha_bce * bce_loss + args.alpha_margin * margin_loss
+
+                if args.decoder == "gamenet":
+                    loss += ddi_loss
 
                 if args.gradient_accumulation_steps > 1:
                     loss = loss / args.gradient_accumulation_steps
