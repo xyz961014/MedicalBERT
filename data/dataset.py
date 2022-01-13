@@ -110,6 +110,23 @@ class MedicalRecommendationDataset(object):
                                                history=history,
                                                return_history_meds=return_history_meds)
 
+    def get_diag_test_loader(self, model_name, diag_id, shuffle=False, history=False, return_history_meds=False):
+        diag_token = self.vocab.idx2word[diag_id]    
+        diag_name = self.vocab.idx2detail[diag_id]    
+        print("-" * 10 + " Getting diag_test_loader on {}  ".format(diag_name) + '-' * 10)
+        diag_data_test = self.data_test.copy().reset_index()
+        idx2rm = []
+        for idx, row in diag_data_test.iterrows():
+            diag_seq = row["ICD9_CODE"]
+            diag_seq = [self.vocab.normalize_word(d, "DIAG") for d in diag_seq]
+            if not diag_token in diag_seq:
+                idx2rm.append(idx)
+        diag_data_test = diag_data_test.drop(index=idx2rm).reset_index()
+        return MedicalRecommendationDataloader(diag_data_test, model_name, self.vocab, 
+                                               evaluate=True, 
+                                               history=history,
+                                               return_history_meds=return_history_meds)
+
 
     def get_extra_data(self, model_name):
         if model_name == "GAMENet":

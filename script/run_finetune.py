@@ -185,6 +185,11 @@ def parse_args():
     parser.add_argument('--eval_on_train', 
                         action='store_true',
                         help="eval on train set")
+    parser.add_argument('--eval_on_diseases', 
+                        action='store_true',
+                        help="eval on diseases")
+    parser.add_argument('--eval_disease_threshold', type=int, default=500,
+                        help='retain diseases occurence > threshold in test set')
     parser.add_argument("--cpu",
                         action='store_true',
                         help="only use cpu, do not use gpu")
@@ -263,8 +268,8 @@ def setup_training(args):
     print("device: {} n_gpu: {}, distributed training: {}".format(
         device, len(args.devices), bool(args.distributed)))
 
-    if not args.train and not args.eval:
-        raise ValueError("At least one of `train` or `eval` must be True.")
+    if not args.train and not args.eval and not args.eval_on_diseases:
+        raise ValueError("At least one of `train` or `eval` or 'eval_on_diseases' must be True.")
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
@@ -464,6 +469,7 @@ def main(args):
         global_step = 0
         start_step = 0
         curr_epoch = 1
+        epoch = curr_epoch
     else:
         if args.resume_step == -1:
             model_names = [f for f in os.listdir(args.output_dir) if f.endswith(".pt")]
@@ -476,6 +482,7 @@ def main(args):
         model.load_state_dict(checkpoint['model'], strict=False)
         curr_epoch = checkpoint["epoch"]
         start_step = checkpoint["step"] + 1
+        epoch = curr_epoch
         
         if is_main_process():
             print("resume step from ", args.resume_step)
@@ -693,6 +700,36 @@ def main(args):
                            "avg_f1": avg_f1,
                            "prauc": prauc},
                      verbosity=dllogger.Verbosity.VERBOSE)
+
+    if args.eval_on_diseases:
+        test_disease_adms = dataset.data_test["ICD9_CODE"].tolist()
+        test_disease_dict = {}
+        for adm in test_disease_adms:
+            for d in adm:
+                if d in test_disease_dict.keys():
+                    test_disease_dict[d] += 1
+                else:
+                    test_disease_dict[d] = 1
+        test_diseases = sorted([(k, v) for k, v in test_disease_dict.items() if v > args.eval_disease_threshold],
+                                key=lambda x: -x[1])
+        disease_dict = {vocab.get_word_id(d, "DIAG"): (vocab.idx2word[vocab.get_word_id(d, "DIAG")],
+                                                       vocab.idx2detail[vocab.get_word_id(d, "DIAG")])
+                        for d, _ in test_diseases}
+        for diag_id in disease_dict.keys():
+            TASKS[args.task_name]["dataloader_args"]["diag_id"] = diag_id
+            diag_test_loader = dataset.get_diag_test_loader(**TASKS[args.task_name]["dataloader_args"])
+
+            ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(diag_test_loader)
+
+            dllogger.log(step="PARAMETER", data={"disease_name": disease_dict[diag_id][1]})
+            dllogger.log(step=(epoch, global_step, disease_dict[diag_id]), 
+                         data={"jaccard": jaccard,
+                               "ddi_rate": ddi_rate,
+                               "avg_precision": avg_p,
+                               "avg_recall": avg_r,
+                               "avg_f1": avg_f1,
+                               "prauc": prauc},
+                         verbosity=dllogger.Verbosity.VERBOSE)
 
 
 
