@@ -304,9 +304,9 @@ class MedicalRecommendationDataloader(object):
                     union_inputs = [self.CLS_TOKEN]
                     segment_ids = [0]
 
+                    history_meds = []
                     if self.history:
                         patient_history = patient[:idx]
-                        history_meds = []
                         for history_adm in patient_history:
                             adm_diags = history_adm[0]
                             adm_procs = history_adm[1]
@@ -343,7 +343,7 @@ class MedicalRecommendationDataloader(object):
                     for i, item in enumerate(meds_to_pred):
                         margin_loss_target[0][i] = item
 
-                    if self.history and self.return_history_meds:
+                    if self.return_history_meds:
                         union_inputs = (union_inputs, history_meds)
 
                     if self.evaluate:

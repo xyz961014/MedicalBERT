@@ -784,7 +784,8 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
             for idx, word_id in enumerate(input_ids.squeeze().tolist()):
                 if word_id == adm_id:
                     adm_reprs.append(encoded_layers[-1][:, idx, :])
-            seq_repr = torch.cat(adm_reprs, dim=0)
+            if len(adm_reprs) > 0:
+                seq_repr = torch.cat(adm_reprs, dim=0)
 
         output = self.dropout(seq_repr)
 
@@ -818,7 +819,7 @@ class MLPDecoder(nn.Module):
 
 
 class GAMENetDecoder(nn.Module):
-    def __init__(self, input_dim, output_dim, vocab=None, ehr_adj=None, ddi_adj=None, dropout=0.4,
+    def __init__(self, input_dim, output_dim, hidden_dim=None, vocab=None, ehr_adj=None, ddi_adj=None, dropout=0.4,
                  device=torch.device('cpu:0'), ddi_in_memory=True):
         super().__init__()
         self.vocab = vocab
@@ -828,7 +829,11 @@ class GAMENetDecoder(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.input_dim = input_dim
         self.output_dim = output_dim
-        emb_dim = int(input_dim / 4)
+        self.hidden_dim = hidden_dim if hidden_dim is not None else input_dim
+        emb_dim = int(self.hidden_dim / 4)
+
+        if not self.hidden_dim == self.input_dim:
+            self.pre_transform = nn.Linear(self.input_dim, self.hidden_dim)
 
         self.query = nn.Sequential(
             nn.ReLU(),
@@ -849,6 +854,9 @@ class GAMENetDecoder(nn.Module):
         self.init_weights()
 
     def forward(self, patient_representations, history_meds):
+
+        if not self.hidden_dim == self.input_dim:
+            patient_representations = self.pre_transform(patient_representations)
 
         queries = self.query(patient_representations) # (seq, dim)
 

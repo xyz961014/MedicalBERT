@@ -227,6 +227,8 @@ def parse_args():
                         help='number of layers of MLP in decoder')
     parser.add_argument('--decoder_mlp_hidden', type=int, default=1024,
                         help='dim of hidden layers of MLP in decoder')
+    parser.add_argument('--decoder_gamenet_hidden', type=int, default=256,
+                        help='dim of hidden layers of GAMENet in decoder')
 
     return parser.parse_args()
 
@@ -433,6 +435,7 @@ def main(args):
                 "vocab": vocab,
                 "ehr_adj": ehr_adj,
                 "ddi_adj": ddi_adj,
+                "hidden_dim": args.decoder_gamenet_hidden,
                 "dropout": args.hidden_dropout_prob,
                 "device": device
                          }
