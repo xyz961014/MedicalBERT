@@ -188,7 +188,7 @@ def parse_args():
     parser.add_argument('--eval_on_diseases', 
                         action='store_true',
                         help="eval on diseases")
-    parser.add_argument('--eval_disease_threshold', type=int, default=500,
+    parser.add_argument('--eval_disease_threshold', type=int, default=100,
                         help='retain diseases occurence > threshold in test set')
     parser.add_argument("--cpu",
                         action='store_true',
