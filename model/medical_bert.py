@@ -782,9 +782,18 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
             adm_id = self.decoder.vocab.word2idx["<ADMISSION>"]
             adm_reprs = []
             for idx, word_id in enumerate(input_ids.squeeze().tolist()):
-                if word_id == adm_id:
-                    adm_reprs.append(encoded_layers[-1][:, idx, :])
+                if word_id == adm_id and idx > 1:
+                    adm_inputs_ids = input_ids[:, :idx]
+                    adm_token_type_ids = token_type_ids[:, :idx]
+                    adm_attention_mask = attention_mask[:, :idx]
+                    adm_encoded_layers, _ = self.bert(adm_inputs_ids, adm_token_type_ids, adm_attention_mask)
+                    if self.mean_repr:
+                        adm_repr = adm_encoded_layers[-1].mean(dim=1)
+                    else:
+                        adm_repr = adm_encoded_layers[-1][:, 0, :]
+                    adm_reprs.append(adm_repr)
             if len(adm_reprs) > 0:
+                adm_reprs.append(seq_repr)
                 seq_repr = torch.cat(adm_reprs, dim=0)
 
         output = self.dropout(seq_repr)
