@@ -205,7 +205,7 @@ class MedicalRecommendationDataloader(object):
 
 
     def __len__(self):
-        if self.evaluate:
+        if self.evaluate and self.model_name == "Nearest":
             return sum([len(d) - 1 for d in self.records])
         else:
             return sum([len(d) for d in self.records])
@@ -219,7 +219,7 @@ class MedicalRecommendationDataloader(object):
         for patient in data_to_iter:
             for idx, admission in enumerate(patient):
 
-                if self.evaluate and idx == 0:
+                if self.evaluate and idx == 0 and self.model_name == "Nearest":
                     continue
                 if self.evaluate:
                     y_target = np.zeros(self.med_vocab_size)
