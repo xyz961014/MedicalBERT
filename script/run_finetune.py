@@ -41,6 +41,7 @@ from data.dataset import MedicalRecommendationDataset
 from data import Vocab, PretrainVocab
 from utils import sequence_metric, sequence_output_process
 from utils import llprint, multi_label_metric, ddi_rate_score
+from utils import buildMPNN
 
 
 TASKS = {
@@ -250,14 +251,12 @@ def parse_args():
                         help="use bert embedding to predict first")
 
     parser.add_argument('--decoder', type=str, default="linear",
-                        choices=["linear", "mlp", "gamenet"],
+                        choices=["linear", "mlp", "gamenet", "safedrug"],
                         help='decoder of Finetuning model. default: linear')
     parser.add_argument('--decoder_mlp_layers', type=int, default=2,
                         help='number of layers of MLP in decoder')
-    parser.add_argument('--decoder_mlp_hidden', type=int, default=1024,
-                        help='dim of hidden layers of MLP in decoder')
-    parser.add_argument('--decoder_gamenet_hidden', type=int, default=256,
-                        help='dim of hidden layers of GAMENet in decoder')
+    parser.add_argument('--decoder_hidden', type=int, default=768,
+                        help='dim of hidden layers of decoder')
 
     return parser.parse_args()
 
@@ -453,7 +452,7 @@ def main(args):
     elif args.decoder.lower() == "mlp":
         decoder_params = {
                 "num_layers": args.decoder_mlp_layers,
-                "hidden_dim": args.decoder_mlp_hidden,
+                "hidden_dim": args.decoder_hidden,
                 "dropout": args.hidden_dropout_prob
                          }
     elif args.decoder.lower() == "gamenet":
@@ -464,11 +463,28 @@ def main(args):
                 "vocab": vocab,
                 "ehr_adj": ehr_adj,
                 "ddi_adj": ddi_adj,
-                "hidden_dim": args.decoder_gamenet_hidden,
+                "hidden_dim": args.decoder_hidden,
                 "dropout": args.hidden_dropout_prob,
                 "device": device
                          }
-        pass
+    elif args.decoder.lower() == "safedrug":
+        ddi_adj, ddi_mask_H, molecule = dataset.get_extra_data("SafeDrug")
+        med_vocab_idx2word = {dataset.vocab.intra_type_index["MED-ATC"][k]: v 
+                              for k, v in dataset.vocab.idx2word.items() 
+                              if k in dataset.vocab.get_type_vocab_ids("MED-ATC")}
+        MPNNSet, N_fingerprints, average_projection = buildMPNN(molecule, med_vocab_idx2word, 2, device)
+        device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        decoder_params = {
+                "vocab": vocab,
+                "ddi_adj": ddi_adj,
+                "ddi_mask_H": ddi_mask_H,
+                "MPNNSet": MPNNSet,
+                "N_fingerprints": N_fingerprints,
+                "average_projection": average_projection,
+                "hidden_dim": args.decoder_hidden,
+                "dropout": args.hidden_dropout_prob,
+                "device": device
+                         }
 
     if not args.from_scratch:
         model = MedicalBertForSequenceClassification.from_pretrained(args.pretrained_model_path, 
@@ -599,6 +615,10 @@ def main(args):
                     output_target, ddi_loss = model(input_ids=(input_ids, history_meds),
                                                     token_type_ids=segment_ids,
                                                     attention_mask=input_mask)
+                if args.decoder == "safedrug":
+                    output_target, ddi_loss = model(input_ids=input_ids,
+                                                    token_type_ids=segment_ids,
+                                                    attention_mask=input_mask)
                 else:
                     output_target = model(input_ids=input_ids,
                                           token_type_ids=segment_ids,
@@ -609,13 +629,16 @@ def main(args):
                                                        torch.LongTensor(margin_loss_target).to(device))
                 loss = args.alpha_bce * bce_loss + args.alpha_margin * margin_loss
 
-                if args.decoder == "gamenet":
+                if args.decoder in ["gamenet", "safedrug"]:
                     loss += ddi_loss
 
                 if args.gradient_accumulation_steps > 1:
                     loss = loss / args.gradient_accumulation_steps
 
-                loss.backward()
+                if args.decoder == "safedrug":
+                    loss.backward(retain_graph=True)
+                else:
+                    loss.backward()
                 loss_record.append(loss.item())
                 training_steps += 1
 

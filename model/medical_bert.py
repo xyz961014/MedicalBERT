@@ -17,7 +17,7 @@ import torch.nn.init as init
 curr_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(os.path.join(curr_path, ".."))
 sys.path.append(os.path.join(curr_path, "../baseline"))
-from baseline.models import GCN
+from baseline.models import GCN, MaskLinear, MolecularGraphNeuralNetwork
 
 logger = logging.getLogger(__name__)
 
@@ -767,6 +767,8 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
             self.decoder = MLPDecoder(hidden_dim, num_labels, **decoder_params)
         elif decoder == "gamenet":
             self.decoder = GAMENetDecoder(hidden_dim, num_labels, **decoder_params)
+        elif decoder == "safedrug":
+            self.decoder = SafeDrugDecoder(hidden_dim, num_labels, **decoder_params)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None):
@@ -778,7 +780,7 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
         else:
             seq_repr = encoded_layers[-1][:, 0, :]
         
-        if self.decoder_name == "gamenet":
+        if self.decoder_name in ["gamenet", "safedrug"]:
             adm_id = self.decoder.vocab.word2idx["<ADMISSION>"]
             adm_reprs = []
             for idx, word_id in enumerate(input_ids.squeeze().tolist()):
@@ -808,6 +810,7 @@ class MedicalBertForSequenceClassification(MedicalBertPreTrainedModel):
             final_ouptut = self.decoder(output)
 
         return final_ouptut
+
 
 class MLPDecoder(nn.Module):
 
@@ -918,7 +921,70 @@ class GAMENetDecoder(nn.Module):
         self.inter.data.uniform_(-initrange, initrange)
 
 
+class SafeDrugDecoder(nn.Module):
 
+    def __init__(self, input_dim, output_dim, hidden_dim=None, vocab=None, ddi_adj=None, ddi_mask_H=None, MPNNSet=None, N_fingerprints=None, average_projection=None, dropout=0.5, device=torch.device('cpu:0')):
+        super().__init__()
+
+        self.vocab = vocab
+        self.device = device
+        self.tensor_ddi_adj = torch.FloatTensor(ddi_adj).to(device)
+        self.tensor_ddi_mask_H = torch.FloatTensor(ddi_mask_H).to(device)
+        self.dropout = nn.Dropout(p=dropout)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim if hidden_dim is not None else input_dim
+        emb_dim = int(self.hidden_dim / 2)
+
+        if not self.hidden_dim == self.input_dim:
+            self.pre_transform = nn.Linear(self.input_dim, self.hidden_dim)
+
+        self.query = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(2 * emb_dim, emb_dim)
+        )
+
+        # bipartite local embedding
+        self.bipartite_transform = nn.Sequential(
+            nn.Linear(emb_dim, ddi_mask_H.shape[1])
+        )
+        self.bipartite_output = MaskLinear(ddi_mask_H.shape[1], output_dim, False)
+        
+        # MPNN global embedding
+        self.MPNN_molecule_Set = list(zip(*MPNNSet))
+
+        self.MPNN_emb = MolecularGraphNeuralNetwork(N_fingerprints, emb_dim, layer_hidden=2, device=device).forward(self.MPNN_molecule_Set)
+        self.MPNN_emb = torch.mm(average_projection.to(device=self.device), self.MPNN_emb.to(device=self.device))
+        self.MPNN_emb.to(device=self.device)
+        # self.MPNN_emb = torch.tensor(self.MPNN_emb, requires_grad=True)
+        self.MPNN_output = nn.Linear(output_dim, output_dim)
+        self.MPNN_layernorm = nn.LayerNorm(output_dim)
+        
+
+    def forward(self, patient_representations):
+
+        if not self.hidden_dim == self.input_dim:
+            patient_representations = self.pre_transform(patient_representations)
+
+        query = self.query(patient_representations)[-1:] # (seq, dim)
+        
+	    # MPNN embedding
+        MPNN_match = torch.sigmoid(torch.mm(query, self.MPNN_emb.t()))
+        MPNN_att = self.MPNN_layernorm(MPNN_match + self.MPNN_output(MPNN_match))
+        
+	    # local embedding
+        bipartite_emb = self.bipartite_output(torch.sigmoid(self.bipartite_transform(query)), self.tensor_ddi_mask_H.t())
+        
+        result = torch.mul(bipartite_emb, MPNN_att)
+        
+        if self.training:
+            neg_pred_prob = torch.sigmoid(result)
+            neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
+            batch_neg = 0.0005 * neg_pred_prob.mul(self.tensor_ddi_adj).sum()
+
+            return result, batch_neg
+        else:
+            return result
 
 
 class MedicalBertPretrainingCriterion(nn.Module):

@@ -434,12 +434,12 @@ def main(args):
                         dropout=args.dropout,
                         device=device)
     elif args.model_name == "SafeDrug":
-        MPNNSet, N_fingerprint, average_projection = buildMPNN(molecule, dataset.med_vocab.idx2word, 2, device)
+        MPNNSet, N_fingerprints, average_projection = buildMPNN(molecule, dataset.med_vocab.idx2word, 2, device)
         model = SafeDrugModel(dataset.vocab_size,
                               ddi_adj,
                               ddi_mask_H,
                               MPNNSet,
-                              N_fingerprint,
+                              N_fingerprints,
                               average_projection,
                               emb_dim=args.emb_dim,
                               device=device)
