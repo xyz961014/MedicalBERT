@@ -80,6 +80,30 @@ TASKS = {
                                                         },
                                         "task_label": "MED-ATC",
                                      },
+        "medication_recommendation_safedrug_lab_first": {
+                                        "dataset": MedicalRecommendationDataset, 
+                                        "dataset_args": {
+                                                            "data_file": "safedrug_lab_first_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": False,
+                                                        },
+                                        "task_label": "MED-ATC",
+                                     },
+        "medication_recommendation_safedrug_lab_abnormal": {
+                                        "dataset": MedicalRecommendationDataset, 
+                                        "dataset_args": {
+                                                            "data_file": "safedrug_lab_abnormal_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": False,
+                                                        },
+                                        "task_label": "MED-ATC",
+                                     },
         }
 
 def parse_args():

@@ -19,6 +19,10 @@ def parse_args():
                         help="data dir of MIMIC-III CSV file")
     parser.add_argument("--save", type=str, default="final_with_lab",
                         help="filename of saving vocabulary and records")
+    parser.add_argument("--first_exam", action="store_true", 
+                        help="only list first examination of a lab item")
+    parser.add_argument("--abnormal", action="store_true", 
+                        help="only list abnormal lab items")
     return parser.parse_args()
 
 def filter_first24h_lab(lab_df):
@@ -47,6 +51,11 @@ def main(args):
             continue
         hadm_lab_df = hadm_lab_df.reset_index()
         hadm_lab_df = filter_first24h_lab(hadm_lab_df)
+
+        if args.first_exam:
+            hadm_lab_df = hadm_lab_df.drop_duplicates(subset=["ITEMID"], keep="first")
+        if args.abnormal:
+            hadm_lab_df = hadm_lab_df.drop(hadm_lab_df[hadm_lab_df["FLAG"] == "normal"].index)
 
         lab_id_list = hadm_lab_df["ITEMID"].tolist()
         lab_id_list = [int(l) for l in lab_id_list]

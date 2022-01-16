@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from collections import defaultdict
+import torch
 
 import ipdb
 
@@ -215,6 +216,10 @@ class PretrainVocab(object):
         return tokens
 
     def detokenize(self, ids):
+        if type(ids) == list:
+            pass
+        elif type(ids) == torch.Tensor:
+            ids = ids.squeeze().cpu().tolist()
         return " ".join([self.idx2word[i] for i in ids])
 
 
