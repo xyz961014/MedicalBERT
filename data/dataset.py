@@ -214,12 +214,12 @@ class MedicalRecommendationDataloader(object):
         data_to_iter = self.records
         #if self.shuffle:
         #    random.shuffle(data_to_iter)
-        if self.evaluate:
-            data_to_iter = [data for data in data_to_iter if len(data) > 1]
+        #if self.evaluate:
+        #    data_to_iter = [data for data in data_to_iter if len(data) > 1]
         for patient in data_to_iter:
             for idx, admission in enumerate(patient):
 
-                if self.evaluate and idx == 0 and self.model_name == "Nearest":
+                if self.evaluate and idx == 0:
                     continue
                 if self.evaluate:
                     y_target = np.zeros(self.med_vocab_size)
