@@ -47,6 +47,8 @@ def parse_args():
                         help="only generate first day data in an admission")
     parser.add_argument("--inner_temporal", action="store_true",
                         help="generate tokens like med, lab separately")
+    parser.add_argument("--lab_len", type=int, default=0,
+                        help="number of lab item per sequence")
     return parser.parse_args()
 
 class Vocab(object):
@@ -490,8 +492,9 @@ def build_pretrain_data(args, vocab, df):
                                 print_token("<{}>".format(t))
                                 print_df(t_df)
                     else:
-                        if args.first_day and last_date is not None:
-                            continue
+                        if args.first_day:
+                            if last_date is not None:
+                                continue
                         else:
                             if args.inner_temporal:
                                 for key in token_buffer.keys():
@@ -499,6 +502,7 @@ def build_pretrain_data(args, vocab, df):
                             else:
                                 print_token("<DAY>")
                     last_date = current_date
+
                 for df_type in df_types:
                     datetime_type_df = datetime_df[datetime_df["TYPE"] == df_type]
                     if df_type in vocab.type_with_value and "BUCKET_VALUE" in datetime_type_df.columns:
@@ -510,7 +514,32 @@ def build_pretrain_data(args, vocab, df):
                         print_df(datetime_type_df)
 
             if args.inner_temporal:
-                token_buffer = write_buffer(token_buffer)
+                if args.first_day and args.lab_len > 0 \
+                and "LAB" in token_buffer.keys() and len(token_buffer["LAB"]) > 0:
+                    all_lab_df = pd.concat(token_buffer["LAB"])
+                    if len(all_lab_df) > args.lab_len:
+                        if "MED" in token_buffer.keys():
+                            med_data = token_buffer["MED"]
+                        else:
+                            med_data = []
+                        for idx in range(int(np.ceil(len(all_lab_df) / args.lab_len))):
+                            new_buffer = {}
+                            if "MED" in token_buffer.keys():
+                                new_buffer["MED"] = med_data
+                            new_buffer["LAB"] = [all_lab_df[idx * args.lab_len: (idx + 1) * args.lab_len]]
+                            token_buffer = write_buffer(new_buffer)
+                            if (idx + 1) * args.lab_len < len(all_lab_df):
+                                token_file.write("\n")
+                                id_file.write("\n")
+                                print_token("<ADMISSION>")
+                                for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
+                                    t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
+                                    print_token("<{}>".format(t))
+                                    print_df(t_df)
+                    else:
+                        token_buffer = write_buffer(token_buffer)
+                else:
+                    token_buffer = write_buffer(token_buffer)
             token_file.write("\n")
             id_file.write("\n")
         token_file.write("\n")
