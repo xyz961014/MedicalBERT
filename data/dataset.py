@@ -85,32 +85,37 @@ class MedicalRecommendationDataset(object):
         self.data_test = self.data[split_point:split_point + eval_len]
         self.data_eval = self.data[split_point+eval_len:]
 
-    def get_dataloader(self, model_name, shuffle=False, history=False, return_history_meds=False):
+    def get_dataloader(self, model_name, shuffle=False, history=False, return_history_meds=False, **kwargs):
         print("-" * 10 + " Getting train_loader " + '-' * 10)
         train_loader = MedicalRecommendationDataloader(self.data_train, model_name, self.vocab, 
                                                        shuffle=shuffle, 
                                                        history=history,
-                                                       return_history_meds=return_history_meds)
+                                                       return_history_meds=return_history_meds,
+                                                       **kwargs)
         print("-" * 10 + " Getting eval_loader  " + '-' * 10)
         eval_loader = MedicalRecommendationDataloader(self.data_eval, model_name, self.vocab, 
                                                       evaluate=True, 
                                                       history=history,
-                                                      return_history_meds=return_history_meds)
+                                                      return_history_meds=return_history_meds,
+                                                      **kwargs)
         print("-" * 10 + " Getting test_loader  " + '-' * 10)
         test_loader = MedicalRecommendationDataloader(self.data_test, model_name, self.vocab, 
                                                       evaluate=True, 
                                                       history=history,
-                                                      return_history_meds=return_history_meds)
+                                                      return_history_meds=return_history_meds,
+                                                      **kwargs)
         return train_loader, eval_loader, test_loader
 
-    def get_train_eval_loader(self, model_name, shuffle=False, history=False, return_history_meds=False):
+    def get_train_eval_loader(self, model_name, shuffle=False, history=False, return_history_meds=False, **kwargs):
         print("-" * 10 + " Getting eval_loader on training set  " + '-' * 10)
         return MedicalRecommendationDataloader(self.data_train, model_name, self.vocab, 
                                                evaluate=True, 
                                                history=history,
-                                               return_history_meds=return_history_meds)
+                                               return_history_meds=return_history_meds,
+                                               **kwargs)
 
-    def get_diag_test_loader(self, model_name, diag_id, shuffle=False, history=False, return_history_meds=False):
+    def get_diag_test_loader(self, model_name, diag_id, shuffle=False, history=False, 
+                             return_history_meds=False, **kwargs):
         diag_token = self.vocab.idx2word[diag_id]    
         diag_name = self.vocab.idx2detail[diag_id]    
         print("-" * 10 + " Getting diag_test_loader on {}  ".format(diag_name) + '-' * 10)
@@ -125,7 +130,8 @@ class MedicalRecommendationDataset(object):
         return MedicalRecommendationDataloader(diag_data_test, model_name, self.vocab, 
                                                evaluate=True, 
                                                history=history,
-                                               return_history_meds=return_history_meds)
+                                               return_history_meds=return_history_meds,
+                                               **kwargs)
 
 
     def get_extra_data(self, model_name):
@@ -148,13 +154,18 @@ class MedicalRecommendationDataset(object):
 
 class MedicalRecommendationDataloader(object):
     def __init__(self, data, model_name, vocab, shuffle=False, 
-                 batch_size=1, evaluate=False, history=False, return_history_meds=False):
+                 batch_size=1, evaluate=False, history=False, return_history_meds=False,
+                 diag=True, proc=True, med=True, lab=True):
         self.data = data
         self.vocab = vocab
         self.shuffle = shuffle
         self.batch_size = batch_size
         self.model_name = model_name
         self.return_history_meds = return_history_meds
+        self.diag = diag
+        self.proc = proc
+        self.med = med
+        self.lab = lab
         if type(self.vocab) == dict:
             # baseline vocab
             self.diag_vocab_size = len(vocab["diag_vocab"].idx2word)
@@ -329,7 +340,13 @@ class MedicalRecommendationDataloader(object):
                             adm_procs = history_adm[1]
                             adm_meds_original =  history_adm[3]
                             history_meds.append(history_adm[2])
-                            union_inputs += [self.ADM_TOKEN, self.DIAG_TOKEN] + adm_diags + [self.PROC_TOKEN] + adm_procs + [self.MED_TOKEN] + adm_meds_original
+                            union_inputs += [self.ADM_TOKEN]
+                            if self.diag:
+                                union_inputs += [self.DIAG_TOKEN] + adm_diags
+                            if self.proc:
+                                union_inputs += [self.PROC_TOKEN] + adm_procs
+                            if self.med:
+                                union_inputs += [self.MED_TOKEN] + adm_meds_original
                             segment_ids += [segment_id] * (4 + len(adm_diags) + len(adm_procs) + len(adm_meds_original))
                             #segment_id += 1
 
@@ -343,9 +360,12 @@ class MedicalRecommendationDataloader(object):
                         union_inputs += [self.ADM_TOKEN]
                         segment_ids += [segment_id]
 
-                    union_inputs += [self.DIAG_TOKEN] + diags + [self.PROC_TOKEN] + procs
+                    if self.diag:
+                        union_inputs += [self.DIAG_TOKEN] + diags 
+                    if self.proc:
+                        union_inputs += [self.PROC_TOKEN] + procs
                     segment_ids += [segment_id] * (2 + len(diags) + len(procs))
-                    if len(admission) == 5:
+                    if len(admission) == 5 and self.lab:
                         labs = admission[4]
                         labs = labs[-511 + len(union_inputs):]
                         union_inputs += [self.LAB_TOKEN] + labs

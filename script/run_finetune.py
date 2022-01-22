@@ -258,6 +258,19 @@ def parse_args():
     parser.add_argument('--decoder_hidden', type=int, default=768,
                         help='dim of hidden layers of decoder')
 
+    parser.add_argument('--no_diag', 
+                        action='store_true',
+                        help="do not use diag tokens to predict")
+    parser.add_argument('--no_proc', 
+                        action='store_true',
+                        help="do not use proc tokens to predict")
+    parser.add_argument('--no_med', 
+                        action='store_true',
+                        help="do not use med tokens to predict")
+    parser.add_argument('--no_lab', 
+                        action='store_true',
+                        help="do not use lab tokens to predict")
+
     return parser.parse_args()
 
 
@@ -326,6 +339,14 @@ def get_dataset(args, vocab):
     TASKS[args.task_name]["dataloader_args"]["shuffle"] = args.shuffle
     if args.decoder == "gamenet":
         TASKS[args.task_name]["dataloader_args"]["return_history_meds"] = True
+    if args.no_diag:
+        TASKS[args.task_name]["dataloader_args"]["diag"] = False
+    if args.no_proc:
+        TASKS[args.task_name]["dataloader_args"]["proc"] = False
+    if args.no_med:
+        TASKS[args.task_name]["dataloader_args"]["med"] = False
+    if args.no_lab:
+        TASKS[args.task_name]["dataloader_args"]["lab"] = False
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
