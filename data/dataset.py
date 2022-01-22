@@ -341,13 +341,16 @@ class MedicalRecommendationDataloader(object):
                             adm_meds_original =  history_adm[3]
                             history_meds.append(history_adm[2])
                             union_inputs += [self.ADM_TOKEN]
+                            segment_ids += [segment_id]
                             if self.diag:
                                 union_inputs += [self.DIAG_TOKEN] + adm_diags
+                                segment_ids += [segment_id] * (1 + len(adm_diags))
                             if self.proc:
                                 union_inputs += [self.PROC_TOKEN] + adm_procs
+                                segment_ids += [segment_id] * (1 + len(adm_procs))
                             if self.med:
                                 union_inputs += [self.MED_TOKEN] + adm_meds_original
-                            segment_ids += [segment_id] * (4 + len(adm_diags) + len(adm_procs) + len(adm_meds_original))
+                                segment_ids += [segment_id] * (1 + len(adm_meds_original))
                             #segment_id += 1
 
                     diags = admission[0]
@@ -362,9 +365,10 @@ class MedicalRecommendationDataloader(object):
 
                     if self.diag:
                         union_inputs += [self.DIAG_TOKEN] + diags 
+                        segment_ids += [segment_id] * (1 + len(diags))
                     if self.proc:
                         union_inputs += [self.PROC_TOKEN] + procs
-                    segment_ids += [segment_id] * (2 + len(diags) + len(procs))
+                        segment_ids += [segment_id] * (1 + len(procs))
                     if len(admission) == 5 and self.lab:
                         labs = admission[4]
                         labs = labs[-511 + len(union_inputs):]
