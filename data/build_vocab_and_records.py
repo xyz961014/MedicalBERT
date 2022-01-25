@@ -422,7 +422,7 @@ def count_words(args, vocab, df):
         vocab.count_word(word)
         if "BUCKET_VALUE" in row.keys():
             if not pd.isna(row["BUCKET_VALUE"]):
-                vocab.count_word(row["BUCKET_VALUE"])
+                vocab.count_word(vocab.normalize_word(row["BUCKET_VALUE"], typ="VALUE"))
         if "FLAG" in row.keys():
             if not pd.isna(row["FLAG"]):
                 vocab.count_word("<{}>".format(row["FLAG"].upper()))
@@ -450,11 +450,34 @@ def build_pretrain_data(args, vocab, df):
             id_file.write("{} ".format(int(row["TYPE_TOKEN_ID"])))
             if "BUCKET_VALUE" in row.keys():
                 if pd.notna(row["BUCKET_VALUE"]):
-                    print_token(row["BUCKET_VALUE"])
+                    print_token(vocab.normalize_word(row["BUCKET_VALUE"], typ="VALUE"))
             if "FLAG" in row.keys():
                 if pd.notna(row["FLAG"]):
                     flag_token = "<{}>".format(row["FLAG"].upper())
                     print_token(flag_token)
+
+    def print_df_wo_time(dataframe):
+        fixed_type_order = {
+                "ADMISSION_TYPE": 0,
+                "ADMISSION_LOCATION": 1,
+                "AGE": 2,
+                "GENDER": 3,
+                "RELIGION": 4,
+                "ETHNICITY": 5,
+                "LANGUAGE": 6,
+                "MARITAL_STATUS": 7,
+                "INSURANCE": 8,
+                "DISCHARGE_LOCATION": 9,
+                "DEATH": 10,
+                "DIAG": 11,
+                "PROC": 12,
+                           }
+        typ_list = sorted(dataframe["TYPE"].dropna().unique(), 
+                          key=lambda x: fixed_type_order[x])
+        for t in typ_list:
+            t_df = dataframe[dataframe["TYPE"] == t]
+            print_token("<{}>".format(t))
+            print_df(t_df)
 
     def write_buffer(token_buffer):
 
@@ -484,11 +507,7 @@ def build_pretrain_data(args, vocab, df):
             adm_df_wo_time = adm_df[pd.isna(adm_df["DATETIME"])]
             adm_df_w_time = adm_df[pd.notna(adm_df["DATETIME"])]
             # add tokens with no time
-            ipdb.set_trace()
-            for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
-                t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
-                print_token("<{}>".format(t))
-                print_df(t_df)
+            print_df_wo_time(adm_df_wo_time)
             # add tokens in order of time
             last_date = None
             if args.inner_temporal:
@@ -505,10 +524,7 @@ def build_pretrain_data(args, vocab, df):
                             token_file.write("\n")
                             id_file.write("\n")
                             print_token("<ADMISSION>")
-                            for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
-                                t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
-                                print_token("<{}>".format(t))
-                                print_df(t_df)
+                            print_df_wo_time(adm_df_wo_time)
                     else:
                         if args.first_day:
                             if last_date is not None:
@@ -550,10 +566,7 @@ def build_pretrain_data(args, vocab, df):
                                 token_file.write("\n")
                                 id_file.write("\n")
                                 print_token("<ADMISSION>")
-                                for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
-                                    t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
-                                    print_token("<{}>".format(t))
-                                    print_df(t_df)
+                                print_df_wo_time(adm_df_wo_time)
                     else:
                         token_buffer = write_buffer(token_buffer)
                 else:
