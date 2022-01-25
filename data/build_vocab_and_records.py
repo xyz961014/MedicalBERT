@@ -3,6 +3,7 @@ import os
 import re
 import argparse
 import json
+import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -86,6 +87,7 @@ class PretrainVocab(object):
 
         self.type_with_id = ["LAB", "CHART", "MED", "PROC", "DIAG"]
         self.type_with_value = ["LAB", "CHART"]
+        self.type_static = ["ADMISSION_TYPE", "ADMISSION_LOCATION", "DISCHARGE_LOCATION", "INSURANCE", "LANGUAGE", "RELIGION", "MARITAL_STATUS", "ETHNICITY", "DEATH", "GENDER", "AGE"]
 
         self.idx2word = {}
         self.word2idx = {}
@@ -144,6 +146,8 @@ class PretrainVocab(object):
         else:
             if typ == "FLAG" and word.upper() in ["NORMAL", "ABNORMAL", "DELTA"]:
                 word = "<{}>".format(word.upper())
+            elif type(word) == str and " " in word:
+                word = re.sub(" ", "_", word)
             return word
 
     def get_word_id(self, word, typ):
@@ -199,7 +203,8 @@ class PretrainVocab(object):
     def add_item_values(self, word, typ, values):
         word = self.normalize_word(word, typ)
         idx = self.word2idx[word]
-        self.itemid2valueids[idx] = [self.word2idx[v] for v in values]
+        self.itemid2valueids[idx] = [self.word2idx[self.normalize_word(v, typ="VALUE")] 
+                                     for v in values]
 
     def get_detail(self, data_dir="/home/xyz/Documents/Datasets/mimiciii-1.4"):
         data_source = {
@@ -395,7 +400,7 @@ def build_token(args, vocab, df):
     #for i, chunk in tqdm(enumerate(chunks), total=len(chunks), desc="build tokens"):
     #    df.iloc[i*chunksize: (i+1)*chunksize] = chunk.apply(add_token, axis=1)
     
-    for t in vocab.type_with_id:
+    for t in itertools.chain(vocab.type_static, vocab.type_with_id):
         t_df = df[df["TYPE"] == t]
         if id_columns[t] in t_df.columns:
             unique_tokens_in_type = list(t_df[id_columns[t]].dropna().unique())
@@ -404,6 +409,7 @@ def build_token(args, vocab, df):
                 idx2build = t_df[t_df[id_columns[t]] == idx].index
                 df.loc[idx2build, "TYPE_TOKEN"] = word
                 df.loc[idx2build, "TYPE_TOKEN_ID"] = vocab.word2idx[word]
+
 
     df["TYPE_TOKEN_ID"] = df["TYPE_TOKEN_ID"].astype("int64")
     df.to_pickle("{}_data_with_token.pkl".format(args.save))
