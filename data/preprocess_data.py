@@ -4,6 +4,7 @@ import ipdb
 import argparse
 import pandas as pd
 from tqdm import tqdm
+from datetime import datetime
 from functools import partial
 
 
@@ -28,6 +29,9 @@ def parse_args():
                         help="preprocess pretrain data via LABEVENTS table")
     parser.add_argument("--chartevents", action="store_true",
                         help="preprocess pretrain data via CHARTEVENTS table")
+    parser.add_argument("--static", action="store_true",
+                        help="preprocess static pretrain data via ADMISSIONS"
+                             " and PATIENTS table")
 
     return parser.parse_args()
 
@@ -101,11 +105,15 @@ def main(args):
     diag_file = os.path.join(args.data_path, 'DIAGNOSES_ICD.csv')
     proc_file = os.path.join(args.data_path, 'PROCEDURES_ICD.csv')
 
+
     # files for pretrain
     lab_file = os.path.join(args.data_path, 'LABEVENTS.csv')
     chart_file = os.path.join(args.data_path, 'CHARTEVENTS.csv')
     item_file = os.path.join(args.data_path, 'D_ITEMS.csv')
     labitem_file = os.path.join(args.data_path, 'D_LABITEMS.csv')
+
+    admissions_file = os.path.join(args.data_path, 'ADMISSIONS.csv')
+    patients_file = os.path.join(args.data_path, 'PATIENTS.csv')
 
 
     # drug code mapping files
@@ -233,6 +241,95 @@ def main(args):
         chart_pd = chart_pd.reset_index(drop=True)
         return chart_pd
 
+    def get_static():
+
+        def extract_static_type(df, typ, rename=None, hadm_id=True):
+            keys = ["SUBJECT_ID"]
+            if hadm_id:
+                keys.append("HADM_ID")
+            keys.append(typ)
+            typ_df = df.loc[:, keys]
+            typ_df.rename(columns={typ: "STATIC_VALUE"}, inplace=True)
+            typ_df.dropna(inplace=True)
+            if rename is not None:
+                typ_df.loc[:, "TYPE"] = rename
+            else:
+                typ_df.loc[:, "TYPE"] = typ
+            return typ_df
+
+        static_dfs = []
+
+        admissions_pd = pd.read_csv(admissions_file)
+        admissions_pd.drop(columns=["ROW_ID", "DISCHTIME", "DEATHTIME", "EDREGTIME", "EDOUTTIME", "DIAGNOSIS", "HAS_CHARTEVENTS_DATA"], inplace=True)
+        patients_pd = pd.read_csv(patients_file)
+        patients_pd.drop(columns=["ROW_ID", "DOD", "DOD_HOSP", "DOD_SSN", "EXPIRE_FLAG"], inplace=True)
+
+        adm_type_df = extract_static_type(admissions_pd, "ADMISSION_TYPE")
+        static_dfs.append(adm_type_df)
+        
+        adm_loc_df = extract_static_type(admissions_pd, "ADMISSION_LOCATION")
+        static_dfs.append(adm_loc_df)
+
+        dis_loc_df = extract_static_type(admissions_pd, "DISCHARGE_LOCATION")
+        static_dfs.append(dis_loc_df)
+
+        ins_df = extract_static_type(admissions_pd, "INSURANCE")
+        static_dfs.append(ins_df)
+
+        lan_df = extract_static_type(admissions_pd, "LANGUAGE")
+        static_dfs.append(lan_df)
+
+        rel_df = extract_static_type(admissions_pd, "RELIGION")
+        static_dfs.append(rel_df)
+
+        mari_df = extract_static_type(admissions_pd, "MARITAL_STATUS")
+        static_dfs.append(mari_df)
+
+        eth_df = extract_static_type(admissions_pd, "ETHNICITY")
+        static_dfs.append(eth_df)
+
+        death_df = extract_static_type(admissions_pd, "HOSPITAL_EXPIRE_FLAG", 
+                                       rename="DEATH")
+        static_dfs.append(death_df)
+
+        gen_df = extract_static_type(patients_pd, "GENDER", hadm_id=False)
+        gen_df = admissions_pd.loc[:, ["SUBJECT_ID", "HADM_ID"]].merge(gen_df, on=["SUBJECT_ID"], how="inner")
+        static_dfs.append(gen_df)
+
+        # compute age
+        def map_age(age, interval=5):
+            if age > 89: # > 300
+                age = ">89"
+            elif age == 0:
+                age = "0"
+            else:
+                lower_bound = ((age - 1) // interval) * interval + 1
+                upper_bound = ((age - 1) // interval + 1) * interval
+                if upper_bound > 89:
+                    upper_bound = 89
+                age = "{}-{}".format(lower_bound, upper_bound)
+            return age
+        def compute_age(row):
+            dob = row["DOB"]
+            adm_time = row["ADMITTIME"]
+            dob = datetime.strptime(dob, "%Y-%m-%d %H:%M:%S")
+            adm_time = datetime.strptime(adm_time, "%Y-%m-%d %H:%M:%S")
+            age = (adm_time - dob).days // 365
+            age = map_age(age)
+            row["STATIC_VALUE"] = age
+            return row
+        adm_time_df = admissions_pd.loc[:, ["SUBJECT_ID", "HADM_ID", "ADMITTIME"]]
+        dob_df = patients_pd.loc[:, ["SUBJECT_ID", "DOB"]]
+        age_df = adm_time_df.merge(dob_df, on=["SUBJECT_ID"], how="inner")
+        age_df = age_df.apply(compute_age, axis=1)
+        age_df.loc[:, "TYPE"] = "AGE"
+        age_df.drop(columns=["ADMITTIME", "DOB"], inplace=True)
+        static_dfs.append(age_df)
+
+        static_df = pd.concat(static_dfs)
+        return static_df
+
+
     def filter_most_diag(diag_pd, most_value=2000):
         diag_count = diag_pd.groupby(by=['ICD9_CODE']).size().reset_index().rename(columns={0:'count'}).sort_values(by=['count'],ascending=False).reset_index(drop=True)
         diag_pd = diag_pd[diag_pd['ICD9_CODE'].isin(diag_count.loc[:most_value - 1, 'ICD9_CODE'])]
@@ -328,6 +425,17 @@ def main(args):
                 "PROC": "ICD9_CODE" if pretrain else "PROC_CODE",
                 "LAB": "ITEMID",
                 "CHART": "ITEMID",
+                "ADMISSION_TYPE": "STATIC_VALUE",
+                "ADMISSION_LOCATION": "STATIC_VALUE",
+                "DISCHARGE_LOCATION": "STATIC_VALUE",
+                "INSURANCE": "STATIC_VALUE",
+                "LANGUAGE": "STATIC_VALUE",
+                "RELIGION": "STATIC_VALUE",
+                "MARITAL_STATUS": "STATIC_VALUE",
+                "ETHNICITY": "STATIC_VALUE",
+                "DEATH": "STATIC_VALUE",
+                "GENDER": "STATIC_VALUE",
+                "AGE": "STATIC_VALUE",
                        }
         
         if pretrain:
@@ -418,6 +526,10 @@ def main(args):
             chart_pd.rename(columns={"CHARTTIME": "DATETIME"}, inplace=True)
             chart_pd.loc[:, "TYPE"] = "CHART"
             dfs.append(chart_pd)
+
+        if args.static:
+            static_pd = get_static()
+            dfs.append(static_pd)
 
         data = pd.concat(dfs)
         data.sort_values(by=["SUBJECT_ID", "HADM_ID", "DATETIME"], inplace=True)
