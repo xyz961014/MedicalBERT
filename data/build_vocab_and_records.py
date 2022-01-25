@@ -17,6 +17,17 @@ id_columns = {
         "PROC": "ICD9_CODE",
         "LAB": "ITEMID",
         "CHART": "ITEMID",
+        "ADMISSION_TYPE": "STATIC_VALUE",
+        "ADMISSION_LOCATION": "STATIC_VALUE",
+        "DISCHARGE_LOCATION": "STATIC_VALUE",
+        "INSURANCE": "STATIC_VALUE",
+        "LANGUAGE": "STATIC_VALUE",
+        "RELIGION": "STATIC_VALUE",
+        "MARITAL_STATUS": "STATIC_VALUE",
+        "ETHNICITY": "STATIC_VALUE",
+        "DEATH": "STATIC_VALUE",
+        "GENDER": "STATIC_VALUE",
+        "AGE": "STATIC_VALUE",
                }
 
 def parse_args():
@@ -467,6 +478,7 @@ def build_pretrain_data(args, vocab, df):
             adm_df_wo_time = adm_df[pd.isna(adm_df["DATETIME"])]
             adm_df_w_time = adm_df[pd.notna(adm_df["DATETIME"])]
             # add tokens with no time
+            ipdb.set_trace()
             for t in list(adm_df_wo_time["TYPE"].dropna().unique()):
                 t_df = adm_df_wo_time[adm_df_wo_time["TYPE"] == t]
                 print_token("<{}>".format(t))
