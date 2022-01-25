@@ -109,6 +109,10 @@ def parse_args():
                         default=0.15,
                         type=float,
                         help="CHART token probability.")
+    parser.add_argument("--static_prob",
+                        default=0.15,
+                        type=float,
+                        help="static token probability.")
 
     parser.add_argument('--random_seed',
                         type=int,
@@ -457,7 +461,18 @@ def main(args):
             "LAB": args.lab_prob,
             "VALUE": args.value_prob,
             "FLAG": args.flag_prob,
-            "CHART": args.chart_prob
+            "CHART": args.chart_prob,
+            "ADMISSION_TYPE": args.static_prob,
+            "ADMISSION_LOCATION": args.static_prob,
+            "DISCHARGE_LOCATION": args.static_prob,
+            "INSURANCE": args.static_prob,
+            "LANGUAGE": args.static_prob,
+            "RELIGION": args.static_prob,
+            "MARITAL_STATUS": args.static_prob,
+            "ETHNICITY": args.static_prob,
+            "DEATH": args.static_prob,
+            "GENDER": args.static_prob,
+            "AGE": args.static_prob,
                  }
 
     pretrain_epochs, valid_set = create_pretrain_epochs(args, vocab, rng, type_probs)
