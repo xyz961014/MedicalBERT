@@ -146,6 +146,8 @@ class PretrainVocab(object):
         else:
             if typ == "FLAG" and word.upper() in ["NORMAL", "ABNORMAL", "DELTA"]:
                 word = "<{}>".format(word.upper())
+            if typ == "TYPE" and not re.search("[^<][>$]", word):
+                word = "<{}>".format(word)
             elif type(word) == str and " " in word:
                 word = re.sub(" ", "_", word)
             return word
@@ -349,15 +351,21 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
         patient = []
         for index, row in item_df.iterrows():
             admission = []
+            # 0 DIAG tokens
             admission.append([vocab.get_word_id(i, "DIAG") for i in row['ICD9_CODE']])
+            # 1 PROC tokens
             admission.append([vocab.get_word_id(i, "PROC") for i in row['PROC_CODE']])
             for atc in row["NDC"]:
                 if not atc in atcs:
                     atcs.append(atc)
                 if not vocab.normalize_word(atc, "MED-ATC") in vocab.word2idx.keys():
                     vocab.add_word(atc, "MED-ATC")
+            # 2 MED tokens
             admission.append([vocab.get_word_id(i, "MED-ATC") for i in row['NDC']])
+            # 3 MED original tokens
             admission.append([vocab.get_word_id(i, "MED") for i in row['NDC_ORIGINAL']])
+            # 4 LAB tokens
+            lab_tokens = []
             if "LAB_ID" in row.keys():
                 if pd.notna(row["LAB_ID"]):
                     lab_ids = json.loads(row["LAB_ID"])
@@ -365,7 +373,6 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
                     lab_units = json.loads(row["LAB_UNIT"])
                     lab_flags = json.loads(row["LAB_FLAG"])
                     labs = list(zip(lab_ids, lab_values, lab_units, lab_flags))
-                    lab_tokens = []
                     for lab_id, lab_value, lab_unit, lab_flag in labs:
                         lab_token_id = vocab.get_word_id(lab_id, typ="LAB")
                         lab_flag_id = vocab.get_word_id(lab_flag, typ="FLAG")
@@ -373,7 +380,19 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
                         lab_tokens.append(lab_token_id)
                         lab_tokens.append(lab_value_id)
                         lab_tokens.append(lab_flag_id)
-                    admission.append(lab_tokens)
+            admission.append(lab_tokens)
+            # 5 STATIC tokens
+            static_keys = ["ADMISSION_TYPE", "ADMISSION_LOCATION", "DISCHARGE_LOCATION", "INSURANCE", "LANGUAGE", "RELIGION", "MARITAL_STATUS", "ETHNICITY", "DEATH", "GENDER", "AGE"]
+            static_tokens = []
+            for static_key in static_keys:
+                if static_key in row.keys() and pd.notna(row[static_key]):
+                    val = row[static_key]
+                    typ_token_id = vocab.get_word_id(static_key, typ="TYPE")
+                    val_token_id = vocab.get_word_id(val, typ=static_key)
+                    static_tokens.append(typ_token_id)
+                    static_tokens.append(val_token_id)
+            admission.append(static_tokens)
+
             patient.append(admission)
             num_admissions += 1
         records.append(patient) 

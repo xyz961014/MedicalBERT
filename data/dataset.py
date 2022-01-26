@@ -155,13 +155,14 @@ class MedicalRecommendationDataset(object):
 class MedicalRecommendationDataloader(object):
     def __init__(self, data, model_name, vocab, shuffle=False, 
                  batch_size=1, evaluate=False, history=False, return_history_meds=False,
-                 diag=True, proc=True, med=True, lab=True):
+                 static=False, diag=True, proc=True, med=True, lab=True):
         self.data = data
         self.vocab = vocab
         self.shuffle = shuffle
         self.batch_size = batch_size
         self.model_name = model_name
         self.return_history_meds = return_history_meds
+        self.static = static
         self.diag = diag
         self.proc = proc
         self.med = med
@@ -356,21 +357,26 @@ class MedicalRecommendationDataloader(object):
                     diags = admission[0]
                     procs = admission[1]
                     meds_to_pred = admission[2]
-                    meds_to_pred = [self.vocab.intra_type_index["MED-ATC"][m] for m in meds_to_pred]
+                    meds_to_pred = [self.vocab.intra_type_index["MED-ATC"][m] 
+                                    for m in meds_to_pred]
+                    labs = admission[4]
+                    statics = admission[5]
                     
 
                     if self.history:
                         union_inputs += [self.ADM_TOKEN]
                         segment_ids += [segment_id]
 
-                    if self.diag:
+                    if self.static and len(statics) > 0:
+                        union_inputs += statics
+                        segment_ids += [segment_id] * len(statics)
+                    if self.diag and len(diags) > 0:
                         union_inputs += [self.DIAG_TOKEN] + diags 
                         segment_ids += [segment_id] * (1 + len(diags))
-                    if self.proc:
+                    if self.proc and len(procs) > 0:
                         union_inputs += [self.PROC_TOKEN] + procs
                         segment_ids += [segment_id] * (1 + len(procs))
-                    if len(admission) == 5 and self.lab:
-                        labs = admission[4]
+                    if self.lab and len(labs) > 0:
                         labs = labs[-511 + len(union_inputs):]
                         union_inputs += [self.LAB_TOKEN] + labs
                         segment_ids += [segment_id] * (1 + len(labs))

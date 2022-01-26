@@ -105,6 +105,32 @@ TASKS = {
                                                         },
                                         "task_label": "MED-ATC",
                                      },
+        "medication_recommendation_safedrug_static": {
+                                        "dataset": MedicalRecommendationDataset, 
+                                        "dataset_args": {
+                                                            "data_file": "safedrug_static_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": False,
+                                                            "static": True,
+                                                        },
+                                        "task_label": "MED-ATC",
+                                     },
+        "medication_recommendation_safedrug_lab_abnormal_static": {
+                                        "dataset": MedicalRecommendationDataset, 
+                                        "dataset_args": {
+                                                            "data_file": "safedrug_lab_abnormal_static_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": False,
+                                                            "static": True,
+                                                        },
+                                        "task_label": "MED-ATC",
+                                     },
         }
 
 def parse_args():
@@ -270,6 +296,9 @@ def parse_args():
     parser.add_argument('--no_lab', 
                         action='store_true',
                         help="do not use lab tokens to predict")
+    parser.add_argument('--no_static', 
+                        action='store_true',
+                        help="do not use static tokens to predict")
 
     return parser.parse_args()
 
@@ -347,6 +376,8 @@ def get_dataset(args, vocab):
         TASKS[args.task_name]["dataloader_args"]["med"] = False
     if args.no_lab:
         TASKS[args.task_name]["dataloader_args"]["lab"] = False
+    if args.no_static:
+        TASKS[args.task_name]["dataloader_args"]["static"] = False
     train_loader, eval_loader, test_loader = dataset.get_dataloader(**TASKS[args.task_name]["dataloader_args"])
     if args.eval_on_train:
         train_eval_loader = dataset.get_train_eval_loader(**TASKS[args.task_name]["dataloader_args"])
