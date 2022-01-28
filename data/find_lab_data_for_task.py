@@ -1,5 +1,6 @@
 import dill
 import os
+import re
 import argparse
 import json
 import numpy as np
@@ -61,6 +62,7 @@ def main(args):
         lab_id_list = [int(l) for l in lab_id_list]
         lab_value_list = hadm_lab_df["VALUENUM"].tolist()
         lab_unit_list = hadm_lab_df["VALUEUOM"].tolist()
+        lab_unit_list = [re.sub(" ", "_", u) for u in lab_unit_list]
         lab_flag_list = hadm_lab_df["FLAG"].tolist()
 
         df.loc[idx, "LAB_ID"] = json.dumps(lab_id_list)

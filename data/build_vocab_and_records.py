@@ -371,6 +371,7 @@ def build_records_for_pretrain_vocab(df, vocab, save=None):
                     lab_ids = json.loads(row["LAB_ID"])
                     lab_values = json.loads(row["LAB_VALUE"])
                     lab_units = json.loads(row["LAB_UNIT"])
+                    lab_units = [re.sub(" ", "_", u) for u in lab_units]
                     lab_flags = json.loads(row["LAB_FLAG"])
                     labs = list(zip(lab_ids, lab_values, lab_units, lab_flags))
                     for lab_id, lab_value, lab_unit, lab_flag in labs:
