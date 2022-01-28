@@ -144,6 +144,19 @@ TASKS = {
                                                         },
                                         "task_label": "MED-ATC",
                                      },
+        "medication_recommendation_safedrug_lab_static": {
+                                        "dataset": MedicalRecommendationDataset, 
+                                        "dataset_args": {
+                                                            "data_file": "safedrug_lab_static_data.pkl",
+                                                        },
+                                        "dataloader_args": {
+                                                            "model_name": "MedicalBert",
+                                                            "shuffle": False,
+                                                            "history": False,
+                                                            "static": True,
+                                                        },
+                                        "task_label": "MED-ATC",
+                                     },
         }
 
 def parse_args():
