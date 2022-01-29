@@ -251,6 +251,13 @@ class MedicalRecommendationDataloader(object):
                         yield seq_inputs, y_target
                     else:
                         yield seq_inputs, loss1_target, loss3_target
+                elif self.model_name == "DMNC":
+                    seq_inputs = patient[:idx+1]
+                    loss_target = admission[2] + [self.END_TOKEN]
+                    if self.evaluate:
+                        yield seq_inputs, y_target
+                    else:
+                        yield seq_inputs, loss_target
                 elif self.model_name in ["Retain"]:
                     seq_inputs = deepcopy(patient[:idx+1])
                     seq_inputs[-1][2] = []
@@ -260,7 +267,7 @@ class MedicalRecommendationDataloader(object):
                         yield seq_inputs, y_target
                     else:
                         yield seq_inputs, loss_target
-                elif self.model_name in ["Leap", "DMNC", "LR"]:
+                elif self.model_name in ["Leap", "LR"]:
                     if self.evaluate:
                         yield admission, y_target
                     else:

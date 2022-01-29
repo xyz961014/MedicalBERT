@@ -105,6 +105,16 @@ def parse_args():
 
     return parser.parse_args()
 
+
+def repackage_state(s):
+    """Wraps hidden states in new Tensors, to detach them from their history."""
+    if isinstance(s, torch.Tensor):
+        return s.detach()
+    elif isinstance(s, dict):
+        return {k: repackage_state(v) for k, v in s.items()}
+    else:
+        return list(repackage_state(v) for v in s)
+
 def main(args):
 
     def evaluate(evalloader):
@@ -162,8 +172,10 @@ def main(args):
                 y_pred_tmp[out_list] = 1
                 y_pred = y_pred_tmp
             elif args.model_name == "DMNC":
-                admission, y_target = data
-                output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
+                seq_inputs, y_target = data
+                i1_state, i2_state, i3_state = None, None, None
+                for admission in seq_inputs:
+                    output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
                 output_logits = output_logits.detach().cpu().numpy()
                 out_list, sorted_predict = sequence_output_process(output_logits, [vocab_size[2], vocab_size[2] + 1])
                 y_pred_label = sorted(sorted_predict)
@@ -264,8 +276,6 @@ def main(args):
         if args.model_name == "GAMENet":
             prediction_loss_count = 0
             neg_loss_count = 0
-        elif args.model_name == "DMNC":
-            i1_state, i2_state, i3_state = None, None, None
         #for step, inputs in enumerate(data_train):
         #    for idx, adm in enumerate(inputs):
         #        # process data
@@ -314,8 +324,11 @@ def main(args):
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
             elif args.model_name == "DMNC":
-                admission, loss_target = data
-                output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
+                seq_inputs, loss_target = data
+                i1_state, i2_state, i3_state = None, None, None
+                for admission in seq_inputs:
+                    output_logits, i1_state, i2_state, i3_state = model(admission, i1_state, i2_state, i3_state)
+                    #i1_state, i2_state, i3_state = repackage_state(i1_state), repackage_state(i2_state), repackage_state(i3_state)
                 loss = F.cross_entropy(output_logits, 
                                        torch.LongTensor(loss_target).to(device))
             elif args.model_name == "Retain":
@@ -355,7 +368,7 @@ def main(args):
 
             # optimize
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
             optimizer.step()
     
             loss_record.append(loss.item())
