@@ -12,10 +12,14 @@ def parse_args():
 
     parser.add_argument("--log_files", type=str, required=True, nargs="+",
                         help="dllogger json files")
+    parser.add_argument("--names", type=str, nargs="+",
+                        help="setting names")
     parser.add_argument("--fields", type=str, required=True, nargs="+",
                         help="fields name to visualize")
     parser.add_argument("--title", type=str, default=None,
                         help="picture title")
+    parser.add_argument("--y_name", type=str, default=None,
+                        help="picture y_name")
     parser.add_argument("--save_pdf", action="store_true",
                         help="save the picture as pdf")
     parser.add_argument("--start_step", type=int, default=0,
@@ -44,9 +48,12 @@ if __name__ == "__main__":
     if len(args.log_files) > 1:
         # compare training settings
         datas = {}
-        for filename in args.log_files:
-            parse_filename = os.path.split(filename)
-            data_name = os.path.split(parse_filename[0])[-1]
+        for i, filename in enumerate(args.log_files):
+            if len(args.names) > i:
+                data_name = args.names[i]
+            else:
+                parse_filename = os.path.split(filename)
+                data_name = os.path.split(parse_filename[0])[-1]
             datas[data_name] = get_data_from_log(filename)
         title = args.fields[0] if args.title is None else args.title
     else:
@@ -57,13 +64,13 @@ if __name__ == "__main__":
         title = data_name if args.title is None else args.title
 
 
-    fig, ax = plt.subplots(figsize=(20, 10))
+    fig, ax = plt.subplots(figsize=(14, 10))
 
     # title
-    plt.title(title, fontsize=20)
+    plt.title(title, fontsize=40)
 
 
-    def plot_data(data, field, name=None):
+    def plot_data(data, field, name=None, y_name=None):
         data_to_visualize = []
         for datum in data:
             for data_key in datum["data"].keys():
@@ -73,19 +80,20 @@ if __name__ == "__main__":
                     if args.start_step <= step <= args.end_step:
                         data_to_visualize.append({"step": step, "value": value})
         x_name = "Step"
-        y_name = name if name is not None else field
+        y_name = y_name if y_name is not None else field
+        plot_name = name if name is not None else field
         x_labels = np.array([item["step"] for item in data_to_visualize])
         y_labels = np.array([item["value"] for item in data_to_visualize])
 
         # draw
 
-        plt.grid(axis='y' ,color='grey', linestyle='--', lw=0.5, alpha=0.5)
-        plt.tick_params(axis='both', labelsize=18)
+        plt.grid(axis='y' ,color='grey', linestyle='--')
+        plt.tick_params(axis='both', labelsize=36)
 
-        ax.set_xlabel(x_name, fontsize=18)
-        ax.set_ylabel(field, fontsize=18)
+        ax.set_xlabel(x_name, fontsize=36)
+        ax.set_ylabel(y_name, fontsize=36)
 
-        plot = ax.plot(x_labels, y_labels, markersize=10, label=y_name, linewidth=2)
+        plot = ax.plot(x_labels, y_labels, markersize=10, label=plot_name, linewidth=5)
         plots.extend(plot)
 
 
@@ -94,12 +102,12 @@ if __name__ == "__main__":
     if len(args.log_files) > 1:
         # compare training settings
         for data_name, data in datas.items():
-            plot_data(data, args.fields[0], name=data_name)
+            plot_data(data, args.fields[0], name=data_name, y_name=args.y_name)
     else:
         # compare fileds
         for field in args.fields:
-            plot_data(data, field)
-    ax.legend(plots, [l.get_label() for l in plots], fontsize=18)
+            plot_data(data, field, y_name=args.y_name)
+    ax.legend(plots, [l.get_label() for l in plots], fontsize=30)
 
     plt.tight_layout()
     if args.save_pdf:

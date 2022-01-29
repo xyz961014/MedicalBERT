@@ -79,14 +79,14 @@ if __name__ == "__main__":
 
     for key, diff in key_differences:
         print("DISEASE: {}".format(key))
-        print("{} DIFFERENCE: {:5.5f}".format(args.field, diff))
+        print("{} DIFFERENCE: {:5.4f}".format(args.field, diff))
         print(name_a)
         for field, value in compare_data[key][name_a].items():
-            print("{}: {:5.5f}".format(field, value), end=" ")
+            print("{}: {:5.4f}".format(field, value), end=" ")
         print()
         print(name_b)
         for field, value in compare_data[key][name_b].items():
-            print("{}: {:5.5f}".format(field, value), end=" ")
+            print("{}: {:5.4f}".format(field, value), end=" ")
         print("\n" + "-" * 50)
 
     fig, ax = plt.subplots(figsize=(20, 10))

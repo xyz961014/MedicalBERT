@@ -343,7 +343,6 @@ def create_masked_lm_predictions(args, tokens, vocab, rng, type_probs=None):
             output_tokens[ind] = masked_token
 
     masked_tokens = sorted(masked_tokens, key=lambda x: x.index)
-    ipdb.set_trace()
 
     masked_lm_positions = []
     masked_lm_labels = []
