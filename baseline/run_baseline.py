@@ -370,7 +370,7 @@ def main(args):
 
             # optimize
             optimizer.zero_grad()
-            loss.backward()
+            loss.backward(retain_graph=True)
             optimizer.step()
     
             loss_record.append(loss.item())
