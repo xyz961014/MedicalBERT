@@ -117,7 +117,7 @@ def repackage_state(s):
 
 def main(args):
 
-    def evaluate(evalloader):
+    def evaluate(evalloader, save_path=None):
         # evaluate
         if non_trivial:
             model.eval()
@@ -244,7 +244,8 @@ def main(args):
              avg_f1) = sequence_metric(np.array(y_targets), 
                                        np.array(y_preds), 
                                        np.array(y_pred_probs), 
-                                       np.array(y_pred_labels, dtype=object))
+                                       np.array(y_pred_labels, dtype=object),
+                                       save_path=save_path)
         else:
             (jaccard, 
              prauc, 
@@ -252,7 +253,8 @@ def main(args):
              avg_r, 
              avg_f1) = multi_label_metric(np.array(y_targets), 
                                           np.array(y_preds), 
-                                          np.array(y_pred_probs))
+                                          np.array(y_pred_probs),
+                                          save_path=save_path)
         llprint("DDI Rate: {:6.4f} | Jaccard: {:10.4f} | PRAUC: {:7.4f}\n"
                 "AVG_PRC: {:7.4f} | AVG_RECALL: {:7.4f} | AVG_F1: {:6.4f}\n".format(
                 ddi_rate, 
@@ -601,7 +603,7 @@ def main(args):
               time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 20)
         if args.train and non_trivial:
             model.load_state_dict(torch.load(open(os.path.join(save_path, best_ckp), "rb")))
-        evaluate(test_loader)
+        evaluate(test_loader, save_path=os.path.join(save_path, "test_results.json"))
 
 
 if __name__ == "__main__":

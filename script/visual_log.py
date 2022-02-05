@@ -22,6 +22,8 @@ def parse_args():
                         help="picture y_name")
     parser.add_argument("--save_pdf", action="store_true",
                         help="save the picture as pdf")
+    parser.add_argument("--average", action="store_true",
+                        help="average on fields")
     parser.add_argument("--start_step", type=int, default=0,
                         help="start step")
     parser.add_argument("--end_step", type=int, default=1e9,
@@ -102,7 +104,18 @@ if __name__ == "__main__":
     if len(args.log_files) > 1:
         # compare training settings
         for data_name, data in datas.items():
-            plot_data(data, args.fields[0], name=data_name, y_name=args.y_name)
+            # compute average if needed
+            if args.average and len(args.fields) > 1:
+                for i, datum in enumerate(data):
+                    data_to_average = []
+                    for data_key in datum["data"].keys():
+                        if data_key in args.fields:
+                            data_to_average.append(datum["data"][data_key])
+                    if len(data_to_average) == len(args.fields):
+                        data[i]["data"]["AVERAGE"] = np.mean(data_to_average)
+                plot_data(data, "AVERAGE", name=data_name, y_name=args.y_name)
+            else:
+                plot_data(data, args.fields[0], name=data_name, y_name=args.y_name)
     else:
         # compare fileds
         for field in args.fields:

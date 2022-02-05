@@ -415,7 +415,7 @@ def get_dataset(args, vocab):
 
 def main(args):
 
-    def evaluate(evalloader):
+    def evaluate(evalloader, save_path=None):
         
         model.eval()
         y_targets = []
@@ -471,7 +471,8 @@ def main(args):
          avg_r, 
          avg_f1) = multi_label_metric(np.array(y_targets), 
                                       np.array(y_preds), 
-                                      np.array(y_pred_probs))
+                                      np.array(y_pred_probs),
+                                      save_path=save_path)
 
         print("DDI Rate: {:6.4f} | Jaccard: {:10.4f} | PRAUC: {:7.4f}\n"
               "AVG_PRC: {:7.4f} | AVG_RECALL: {:7.4f} | AVG_F1: {:6.4f}\n".format(
@@ -814,7 +815,8 @@ def main(args):
               time.strftime("%Y-%m-%d %H:%M:%S    ", time.localtime()) +  "=" * 20)
         if args.train:
             model.load_state_dict(torch.load(open(os.path.join(args.output_dir, best_ckp), "rb"))["model"])
-        ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(test_loader)
+        ddi_rate, jaccard, prauc, avg_p, avg_r, avg_f1 = evaluate(test_loader,
+                                                                  save_path=os.path.join(args.output_dir, "test_results.json"))
 
         dllogger.log(step="PARAMETER", data={"test_step": global_step})
         dllogger.log(step=(epoch, global_step, ), 

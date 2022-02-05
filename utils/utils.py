@@ -143,7 +143,7 @@ def sequence_output_process(output_logits, filter_token):
     return out_list, sorted_predict
 
 
-def sequence_metric(y_target, y_pred, y_prob, y_label):
+def sequence_metric(y_target, y_pred, y_prob, y_label, save_path=None):
     def average_prc(y_target, y_label):
         score = []
         for b in range(y_target.shape[0]):
@@ -185,7 +185,7 @@ def sequence_metric(y_target, y_pred, y_prob, y_label):
             union = set(out_list) | set(target)
             jaccard_score = 0 if union == 0 else len(inter) / len(union)
             score.append(jaccard_score)
-        return np.mean(score)
+        return np.mean(score), score
 
     def f1(y_target, y_pred):
         all_micro = []
@@ -203,7 +203,7 @@ def sequence_metric(y_target, y_pred, y_prob, y_label):
         all_micro = []
         for b in range(len(y_target)):
             all_micro.append(average_precision_score(y_target[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
+        return np.mean(all_micro), all_micro
 
     def precision_at_k(y_target, y_prob_label, k):
         precision = 0
@@ -222,16 +222,20 @@ def sequence_metric(y_target, y_pred, y_prob, y_label):
     p_3 = precision_at_k(y_target, y_label, k=3)
     p_5 = precision_at_k(y_target, y_label, k=5)
     f1 = f1(y_target, y_pred)
-    prauc = precision_auc(y_target, y_prob)
-    ja = jaccard(y_target, y_label)
+    prauc, praucs = precision_auc(y_target, y_prob)
+    ja, jas = jaccard(y_target, y_label)
     avg_prc = average_prc(y_target, y_label)
     avg_recall = average_recall(y_target, y_label)
     avg_f1 = average_f1(avg_prc, avg_recall)
 
+    if save_path is not None:
+        data_to_save = {"jaccard": jas, "prauc": praucs, "f1": avg_f1}
+        json.dump(data_to_save, open(save_path, "w"))
+
     return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
 
 
-def multi_label_metric(y_target, y_pred, y_prob):
+def multi_label_metric(y_target, y_pred, y_prob, save_path=None):
 
     def jaccard(y_target, y_pred):
         score = []
@@ -242,7 +246,7 @@ def multi_label_metric(y_target, y_pred, y_prob):
             union = set(out_list) | set(target)
             jaccard_score = 0 if union == 0 else len(inter) / len(union)
             score.append(jaccard_score)
-        return np.mean(score)
+        return np.mean(score), score
 
     def average_prc(y_target, y_pred):
         score = []
@@ -289,7 +293,7 @@ def multi_label_metric(y_target, y_pred, y_prob):
         all_micro = []
         for b in range(len(y_target)):
             all_micro.append(average_precision_score(y_target[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
+        return np.mean(all_micro), all_micro
 
     def precision_at_k(y_target, y_prob, k=3):
         precision = 0
@@ -307,11 +311,15 @@ def multi_label_metric(y_target, y_pred, y_prob):
     p_3 = precision_at_k(y_target, y_prob, k=3)
     p_5 = precision_at_k(y_target, y_prob, k=5)
     f1 = f1(y_target, y_pred)
-    prauc = precision_auc(y_target, y_prob)
-    ja = jaccard(y_target, y_pred)
+    prauc, praucs = precision_auc(y_target, y_prob)
+    ja, jas = jaccard(y_target, y_pred)
     avg_prc = average_prc(y_target, y_pred)
     avg_recall = average_recall(y_target, y_pred)
     avg_f1 = average_f1(avg_prc, avg_recall)
+
+    if save_path is not None:
+        data_to_save = {"jaccard": jas, "prauc": praucs, "f1": avg_f1}
+        json.dump(data_to_save, open(save_path, "w"))
 
     return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
 
