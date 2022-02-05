@@ -177,6 +177,10 @@ def parse_args():
                         default=None,
                         type=str,
                         help="The MEDICALBERT model ckpt if given, do not use the final model")
+    parser.add_argument("--load_path",
+                        default=None,
+                        type=str,
+                        help="saved fine-tuned model path")
     parser.add_argument('--vocab_file',
                         type=str,
                         default=None,
@@ -643,6 +647,9 @@ def main(args):
         model = DDP(model, device_ids=[device], dim=0)
     elif len(args.devices) > 1:
         model = torch.nn.DataParallel(model)
+
+    if args.load_path:
+        model.load_state_dict(torch.load(open(args.load_path, "rb")))
 
 
     if args.train:
