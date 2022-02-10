@@ -90,10 +90,10 @@ if __name__ == "__main__":
         # draw
 
         plt.grid(axis='y' ,color='grey', linestyle='--')
-        plt.tick_params(axis='both', labelsize=36)
+        plt.tick_params(axis='both', labelsize=30)
 
-        ax.set_xlabel(x_name, fontsize=36)
-        ax.set_ylabel(y_name, fontsize=36)
+        ax.set_xlabel(x_name, fontsize=30)
+        ax.set_ylabel(y_name, fontsize=30)
 
         plot = ax.plot(x_labels, y_labels, markersize=10, label=plot_name, linewidth=5)
         plots.extend(plot)
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         # compare fileds
         for field in args.fields:
             plot_data(data, field, y_name=args.y_name)
-    ax.legend(plots, [l.get_label() for l in plots], fontsize=30)
+    ax.legend(plots, [l.get_label() for l in plots], fontsize=26)
 
     plt.tight_layout()
     if args.save_pdf:
