@@ -6,69 +6,92 @@ The MedicalBERT framework is divided into three steps:
 
 ### Data preprocessing
 
-Get data prepared for pre-training:
+- Get data prepared for pre-training:
 
-```bash
-cd data
-mkdir processed_data
+  ```bash
+  cd ./data
+  mkdir processed_data
+  
+  python preprocess_data.py --data_path PATH/TO/MIMIC-III --pretrain --labevents --static --save processed_data/pretrain
+  
+  python create_vocab_and_records.py --data_dir PATH/TO/MIMIC-III --data_path processed_data/pretrain_data.pkl --pretrain --first_day --inner_temporal --save processed_data/pretrain
+  
+  python create_pretrain_data.py --vocab_file processed_data/pretrain_vocab.pkl --input_id_file processed_data/pretrain_id_data.txt --static_prob 0 --lab_prob 0 --value_prob 0 --flag_prob 0 --dupe_factor 30 --save processed_data/pretrain
+  ```
 
-python preprocess_data.py --data_path PATH/TO/MIMIC-III --pretrain --labevents --static --save processed_data/pretrain
+  
 
-python create_vocab_and_records.py --data_dir PATH/TO/MIMIC-III --data_path processed_data/pretrain_data.pkl --pretrain --first_day --inner_temporal --save processed_data/pretrain
+- Get data prepared for fine-tuning using scripts from SafeDrug:
 
-python create_pretrain_data.py --vocab_file processed_data/pretrain_vocab.pkl --input_id_file processed_data/pretrain_id_data.txt --static_prob 0 --lab_prob 0 --value_prob 0 --flag_prob 0 --dupe_factor 30 --save processed_data/pretrain
-```
+  ```bash
+  git clone https://github.com/ycq091044/SafeDrug.git
+  
+  cd ./SafeDrug/data
+  vim processing.py
+  
+  # line 294~296
+  # med_file = './physionet.org/files/mimiciii/1.4/PRESCRIPTIONS.csv'
+  # diag_file = './physionet.org/files/mimiciii/1.4/DIAGNOSES_ICD.csv'
+  # procedure_file = './physionet.org/files/mimiciii/1.4/PROCEDURES_ICD.csv'
+  
+  python processing.py
+  cp data_final.pkl ../../processed_data/safedrug_data.pkl
+  ```
 
-Get data prepared for fine-tuning:
+  
 
-```bash
-python preprocess_data.py --data_path PATH/TO/MIMIC-III --multi_visit --save processed_data/finetune
+- Add static and lab data into the fine-tuning data
 
-python create_vocab_and_records.py --data_dir PATH/TO/MIMIC-III --data_path processed_data/finetune_data.pkl --save processed_data/finetune 
+  ```bash
+  python find_lab_data_for_task.py --data_path processed_data/safedrug_data.pkl --data_dir PATH/TO/MIMIC-III --save processed_data/safedrug_lab
+  
+  python find_static_data_for_task.py --data_path processed_data/safedrug_lab_data.pkl --static_data_path processed_data/pretrain_data.pkl --save processed_data/safedrug_lab_static
+  ```
 
-python find_lab_data_for_task.py --data_path processed_data/finetune_data.pkl --data_dir PATH/TO/MIMIC-III --save processed_data/finetune_lab
-
-python find_static_data_for_task.py --data_path processed_data/finetune_data.pkl --static_data_path processed_data/pretrain_data.pkl --save processed_data/safedrug_lab_static
-```
+  
 
 ### Pre-training
 
-Build model config:
+- Build model config:
 
-``` bash
-cd ../script
-python build_model_config_from_vocab.py \
-    --vocab_file ../data/processed_data/pretrain_vocab.pkl \
-    --save ./model_config \
-    --attention_probs_dropout_prob 0.1 \
-    --hidden_act gelu \
-    --hidden_dropout_prob 0.1 \
-    --hidden_size 768 \
-    --intermediate_size 3072 \
-    --max_position_embeddings 512 \
-    --num_attention_heads 16 \
-    --num_hidden_layers 12 \
-    --only_mlm \
-```
+  ```bash
+  cd ../script
+  python build_model_config_from_vocab.py \
+      --vocab_file ../data/processed_data/pretrain_vocab.pkl \
+      --save ./model_config \
+      --attention_probs_dropout_prob 0.1 \
+      --hidden_act gelu \
+      --hidden_dropout_prob 0.1 \
+      --hidden_size 768 \
+      --intermediate_size 3072 \
+      --max_position_embeddings 512 \
+      --num_attention_heads 16 \
+      --num_hidden_layers 12 \
+      --only_mlm \
+  ```
 
-Then pre-train:
+  
 
-```bash
-python run_pretrain.py \
-    --data_dir ../data/processed_data/pretrain_seq_len_512_max_pred_80_mlm_prob_0.15_random_seed_12345_dupe_30 \
-    --config_file ./model_config.json \
-    --vocab_file ../data/processed_data/pretrain_vocab.pkl \
-    --output_dir . \
-    --train_batch_size 2 \
-    --max_steps 200000 \
-    --seed 12345 \
-    --gradient_accumulation_steps 2 \
-    --num_steps_per_checkpoint 1000 \
-    --log_freq 10 \
-    --display_freq 100 \
-    --devices 0 1 2 3 \
-    --distributed \
-```
+- Then pre-train:
+
+  ```bash
+  python run_pretrain.py \
+      --data_dir ../data/processed_data/pretrain_seq_len_512_max_pred_80_mlm_prob_0.15_random_seed_12345_dupe_30 \
+      --config_file ./model_config.json \
+      --vocab_file ../data/processed_data/pretrain_vocab.pkl \
+      --output_dir . \
+      --train_batch_size 2 \
+      --max_steps 200000 \
+      --seed 12345 \
+      --gradient_accumulation_steps 2 \
+      --num_steps_per_checkpoint 1000 \
+      --log_freq 10 \
+      --display_freq 100 \
+      --devices 0 1 2 3 \
+      --distributed \
+  ```
+
+  
 
 ### Fine-tuning
 

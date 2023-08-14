@@ -1,11 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib import font_manager
 import xlrd
 import json
 import os
 import argparse
 import ipdb
+#plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -20,6 +23,8 @@ def parse_args():
                         help="picture title")
     parser.add_argument("--y_name", type=str, default=None,
                         help="picture y_name")
+    parser.add_argument("--x_name", type=str, default=None,
+                        help="picture x_name")
     parser.add_argument("--save_pdf", action="store_true",
                         help="save the picture as pdf")
     parser.add_argument("--average", action="store_true",
@@ -66,13 +71,14 @@ if __name__ == "__main__":
         title = data_name if args.title is None else args.title
 
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(18, 14))
 
     # title
-    plt.title(title, fontsize=40)
+    plt.title(title, fontsize=40, 
+              fontdict={"fontproperties": font_manager.FontProperties("SimHei")})
 
 
-    def plot_data(data, field, name=None, y_name=None):
+    def plot_data(data, field, name=None, y_name=None, x_name=None):
         data_to_visualize = []
         for datum in data:
             for data_key in datum["data"].keys():
@@ -81,7 +87,7 @@ if __name__ == "__main__":
                     value = datum["data"][data_key]
                     if args.start_step <= step <= args.end_step:
                         data_to_visualize.append({"step": step, "value": value})
-        x_name = "Step"
+        x_name = "Step" if x_name is None else x_name
         y_name = y_name if y_name is not None else field
         plot_name = name if name is not None else field
         x_labels = np.array([item["step"] for item in data_to_visualize])
@@ -92,8 +98,10 @@ if __name__ == "__main__":
         plt.grid(axis='y' ,color='grey', linestyle='--')
         plt.tick_params(axis='both', labelsize=30)
 
-        ax.set_xlabel(x_name, fontsize=30)
-        ax.set_ylabel(y_name, fontsize=30)
+        ax.set_xlabel(x_name, fontsize=30,
+                      fontdict={"fontproperties": font_manager.FontProperties("SimHei")})
+        ax.set_ylabel(y_name, fontsize=30,
+                      fontdict={"fontproperties": font_manager.FontProperties("SimHei")})
 
         plot = ax.plot(x_labels, y_labels, markersize=10, label=plot_name, linewidth=5)
         plots.extend(plot)
@@ -113,17 +121,17 @@ if __name__ == "__main__":
                             data_to_average.append(datum["data"][data_key])
                     if len(data_to_average) == len(args.fields):
                         data[i]["data"]["AVERAGE"] = np.mean(data_to_average)
-                plot_data(data, "AVERAGE", name=data_name, y_name=args.y_name)
+                plot_data(data, "AVERAGE", name=data_name, y_name=args.y_name, x_name=args.x_name)
             else:
-                plot_data(data, args.fields[0], name=data_name, y_name=args.y_name)
+                plot_data(data, args.fields[0], name=data_name, y_name=args.y_name, x_name=args.x_name)
     else:
         # compare fileds
         for field in args.fields:
-            plot_data(data, field, y_name=args.y_name)
+            plot_data(data, field, y_name=args.y_name, x_name=args.x_name)
     ax.legend(plots, [l.get_label() for l in plots], fontsize=26)
 
     plt.tight_layout()
     if args.save_pdf:
-        plt.savefig("{}.pdf".format(title))
+        plt.savefig("pic_{}.pdf".format(title))
     
     plt.show()
